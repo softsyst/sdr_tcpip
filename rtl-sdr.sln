@@ -55,12 +55,10 @@ Global
 		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Debug|Win32.ActiveCfg = Debug|Win32
 		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Debug|Win32.Build.0 = Debug|Win32
 		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Debug|x64.ActiveCfg = Debug|x64
-		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Debug|x64.Build.0 = Debug|x64
 		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Release|Any CPU.ActiveCfg = Release|Win32
 		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Release|Win32.ActiveCfg = Release|Win32
 		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Release|Win32.Build.0 = Release|Win32
 		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Release|x64.ActiveCfg = Release|x64
-		{B8FB79A6-F107-44A5-ACC9-BFD750A85F54}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

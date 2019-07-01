@@ -157,11 +157,19 @@ del $(SolutionDir)$(Platform)\$(Configuration)\*.pdb</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\rtl-sdr\src\controlThread.c" />
     <ClCompile Include="..\rtl-sdr\src\convenience\convenience.c" />
     <ClCompile Include="..\rtl-sdr\src\getopt\getopt.c" />
     <ClCompile Include="..\rtl-sdr\src\rtl_tcp.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\rtl-sdr\include\libusb.h" />
+    <ClInclude Include="..\rtl-sdr\include\reg_field.h" />
+    <ClInclude Include="..\rtl-sdr\include\rtl-sdr.h" />
+    <ClInclude Include="..\rtl-sdr\include\rtlsdr_i2c.h" />
+    <ClInclude Include="..\rtl-sdr\include\rtlsdr_rpc_msg.h" />
+    <ClInclude Include="..\rtl-sdr\include\rtl_tcp.h" />
+    <ClInclude Include="..\rtl-sdr\include\tuner_r82xx.h" />
     <ClInclude Include="..\rtl-sdr\src\convenience\convenience.h" />
     <ClInclude Include="..\rtl-sdr\src\getopt\getopt.h" />
   </ItemGroup>

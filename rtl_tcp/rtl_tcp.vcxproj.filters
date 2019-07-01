@@ -24,12 +24,36 @@
     <ClCompile Include="..\rtl-sdr\src\convenience\convenience.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\rtl-sdr\src\controlThread.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\rtl-sdr\src\getopt\getopt.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\rtl-sdr\src\convenience\convenience.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\rtlsdr_i2c.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\tuner_r82xx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\rtlsdr_rpc_msg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\rtl_tcp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\reg_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\libusb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\rtl-sdr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

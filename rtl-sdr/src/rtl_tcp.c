@@ -389,7 +389,7 @@ struct ir_thread_data
 void *ir_thread_fn(void *arg)
 {
 	int r = 1;
-	struct linger ling = {1,0};
+	struct linger ling = { 1,0 };
 	SOCKET listensocket;
 	SOCKET irsocket;
 	struct sockaddr_in local, remote;
@@ -405,7 +405,7 @@ void *ir_thread_fn(void *arg)
 	char *addr = data->addr;
 
 
-	memset(&local,0,sizeof(local));
+	memset(&local, 0, sizeof(local));
 	local.sin_family = AF_INET;
 	local.sin_port = htons(port);
 	local.sin_addr.s_addr = inet_addr(addr);
@@ -414,34 +414,34 @@ void *ir_thread_fn(void *arg)
 	r = 1;
 	setsockopt(listensocket, SOL_SOCKET, SO_REUSEADDR, (char *)&r, sizeof(int));
 	setsockopt(listensocket, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
-	bind(listensocket,(struct sockaddr *)&local,sizeof(local));
+	bind(listensocket, (struct sockaddr *)&local, sizeof(local));
 
 
-	while(1) {
+	while (1) {
 		printf("listening on IR port %d...\n", port);
-		listen(listensocket,1);
+		listen(listensocket, 1);
 
-		irsocket = accept(listensocket,(struct sockaddr *)&remote, &rlen);
+		irsocket = accept(listensocket, (struct sockaddr *)&remote, &rlen);
 		setsockopt(irsocket, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
 
 		printf("IR client accepted!\n");
 
-		while(1) {
-		    ret = rtlsdr_ir_query(dev, buf, sizeof(buf));
-		    if (ret < 0) {
-			printf("rtlsdr_ir_query error %d\n", ret);
-			break;
-		    }
+		while (1) {
+			ret = rtlsdr_ir_query(dev, buf, sizeof(buf));
+			if (ret < 0) {
+				printf("rtlsdr_ir_query error %d\n", ret);
+				break;
+			}
 
-		    len = ret;
+			len = ret;
 
-		    ret = send(irsocket, buf, len, 0);
-		    if (ret != len){
-			printf("incomplete write to ir client: %d != %d\n", ret,len);
-			break;
-		    }
+			ret = send(irsocket, buf, len, 0);
+			if (ret != len) {
+				printf("incomplete write to ir client: %d != %d\n", ret, len);
+				break;
+			}
 
-		    usleep(wait);
+			usleep(wait);
 		}
 
 		closesocket(irsocket);
@@ -458,6 +458,7 @@ int main(int argc, char **argv)
 	int port_ir = 0;
 	int wait_ir = 10000;
 	pthread_t thread_ir;
+	pthread_t thread_ctrl; //-cs- for periodically reading the register values
 	uint32_t frequency = 100000000, samp_rate = 2048000;
 	enum rtlsdr_ds_mode ds_mode = RTLSDR_DS_IQ;
 	uint32_t ds_temp, ds_threshold = 0;
@@ -648,12 +649,15 @@ int main(int argc, char **argv)
 	pthread_cond_init(&cond, NULL);
 	pthread_cond_init(&exit_cond, NULL);
 
-	if (port_ir) {
-		struct ir_thread_data data = {.dev = dev, .port = port_ir, .wait = wait_ir, .addr = addr};
+	//if (port_ir) {
+	//	struct ir_thread_data data = {.dev = dev, .port = port_ir, .wait = wait_ir, .addr = addr};
 
-		pthread_create(&thread_ir, NULL, &ir_thread_fn, (void *)(&data));
-	}
+	//	pthread_create(&thread_ir, NULL, &ir_thread_fn, (void *)(&data));
+	//}
 
+	ctrl_thread_data_t ctrldata = {.dev = dev, .port = port + 10, .wait = 20000, .addr = addr};
+	pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
+	//for (;;);
 
 	memset(&local,0,sizeof(local));
 	local.sin_family = AF_INET;

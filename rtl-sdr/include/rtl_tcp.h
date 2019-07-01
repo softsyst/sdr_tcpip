@@ -51,6 +51,15 @@ enum RTL_TCP_COMMANDS {
     UDP_TERMINATE             = 0x42,
     SET_I2C_TUNER_REGISTER    = 0x43,   /* for experiments: data: 31 .. 16: register; 15 .. 8: mask; 7 .. 0: data */
 };
+typedef struct
+{
+	rtlsdr_dev_t *dev;
+	SOCKET port;
+	int wait;
+	char *addr;
+}
+ctrl_thread_data_t;
+void *ctrl_thread_fn(void *arg);
 
 #ifdef __cplusplus
 }
