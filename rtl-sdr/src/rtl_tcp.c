@@ -457,7 +457,7 @@ int main(int argc, char **argv)
 	int port = 1234;
 	int port_ir = 0;
 	int wait_ir = 10000;
-	pthread_t thread_ir;
+	//pthread_t thread_ir;
 	pthread_t thread_ctrl; //-cs- for periodically reading the register values
 	uint32_t frequency = 100000000, samp_rate = 2048000;
 	enum rtlsdr_ds_mode ds_mode = RTLSDR_DS_IQ;
@@ -491,6 +491,9 @@ int main(int argc, char **argv)
 	u_long blockmode = 1;
 	dongle_info_t dongle_info;
 	int gains[100];
+
+	int do_exit_thrd_ctrl = 0;
+
 #ifdef _WIN32
 	WSADATA wsd;
 	i = WSAStartup(MAKEWORD(2,2), &wsd);
@@ -499,7 +502,7 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.7, 28.06.2019\n\n");
+		   "Version 0.8, 02.07.2019\n\n");
 
 	while ((opt = getopt(argc, argv, "a:p:f:g:i:s:b:n:d:P:TI:W:l:w:D:v")) != -1) {
 		switch (opt) {
@@ -655,9 +658,8 @@ int main(int argc, char **argv)
 	//	pthread_create(&thread_ir, NULL, &ir_thread_fn, (void *)(&data));
 	//}
 
-	ctrl_thread_data_t ctrldata = {.dev = dev, .port = port + 10, .wait = 20000, .addr = addr};
+	ctrl_thread_data_t ctrldata = {.dev = dev, .port = port + 10, .wait = 500000, .addr = addr, .pDoExit = &do_exit_thrd_ctrl };
 	pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
-	//for (;;);
 
 	memset(&local,0,sizeof(local));
 	local.sin_family = AF_INET;
@@ -758,6 +760,9 @@ int main(int argc, char **argv)
 out:
 	rtlsdr_close(dev);
 	closesocket(listensocket);
+
+	do_exit_thrd_ctrl = 1;
+	pthread_join(thread_ctrl, &status);
 	//if (port_ir) pthread_join(thread_ir, &status);
 	closesocket(s);
 #ifdef _WIN32

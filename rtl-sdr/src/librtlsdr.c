@@ -76,6 +76,8 @@ typedef struct rtlsdr_tuner_iface {
 	int (*set_if_gain)(void *, int stage, int gain /* tenth dB */);
 	int (*set_gain_mode)(void *, int manual);
 	int (*set_i2c_register)(void *, unsigned i2c_register, unsigned mask /* byte */, unsigned data /* byte */ );
+	//-cs-
+	int (*get_i2c_register)(void *, unsigned i2c_register, unsigned char* data, int len);
 } rtlsdr_tuner_iface_t;
 
 enum rtlsdr_async_status {
@@ -348,41 +350,49 @@ int r820t_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, unsi
 	return r82xx_set_i2c_register(&devt->r82xx_p, i2c_register, data, mask);
 }
 
+//-cs-
+int r820t_get_i2c_register(void *dev, unsigned i2c_register, unsigned char* data, int len ) {
+	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
+	return r82xx_get_i2c_register(&devt->r82xx_p, i2c_register, data, len);
+}
+
 
 /* definition order must match enum rtlsdr_tuner */
 static rtlsdr_tuner_iface_t tuners[] = {
 	{
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL /* dummy for unknown tuners */
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL /* dummy for unknown tuners */
 	},
 	{
 		e4000_init, e4000_exit,
 		e4000_set_freq, e4000_set_bw, e4000_set_gain, e4000_set_if_gain,
-		e4000_set_gain_mode, NULL
+		e4000_set_gain_mode, NULL, NULL
 	},
 	{
 		_fc0012_init, fc0012_exit,
 		fc0012_set_freq, fc0012_set_bw, _fc0012_set_gain, NULL,
-		fc0012_set_gain_mode, NULL
+		fc0012_set_gain_mode, NULL, NULL
 	},
 	{
 		_fc0013_init, fc0013_exit,
 		fc0013_set_freq, fc0013_set_bw, _fc0013_set_gain, NULL,
-		fc0013_set_gain_mode, NULL
+		fc0013_set_gain_mode, NULL, NULL
 	},
 	{
 		fc2580_init, fc2580_exit,
 		_fc2580_set_freq, fc2580_set_bw, fc2580_set_gain, NULL,
-		fc2580_set_gain_mode, NULL
+		fc2580_set_gain_mode, NULL, NULL
 	},
 	{
 		r820t_init, r820t_exit,
 		r820t_set_freq, r820t_set_bw, r820t_set_gain, NULL,
-		r820t_set_gain_mode, r820t_set_i2c_register
+		r820t_set_gain_mode, r820t_set_i2c_register,
+		r820t_get_i2c_register
 	},
 	{
 		r820t_init, r820t_exit,
 		r820t_set_freq, r820t_set_bw, r820t_set_gain, NULL,
-		r820t_set_gain_mode, r820t_set_i2c_register
+		r820t_set_gain_mode, r820t_set_i2c_register,
+		r820t_get_i2c_register
 	},
 };
 
@@ -1417,6 +1427,22 @@ int rtlsdr_set_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned i2c_register, unsi
 	return r;
 }
 
+//-cs-
+int rtlsdr_get_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned i2c_register, unsigned char* data , int len)
+{
+	int r = 0;
+
+	if (!dev || !dev->tuner)
+		return -1;
+
+	if (dev->tuner->get_i2c_register) {
+		rtlsdr_set_i2c_repeater(dev, 1);
+		r = dev->tuner->get_i2c_register((void *)dev, i2c_register, data, len);
+		rtlsdr_set_i2c_repeater(dev, 0);
+	}
+	return r;
+}
+//-cs end
 
 int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 {

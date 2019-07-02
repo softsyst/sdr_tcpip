@@ -57,6 +57,7 @@ typedef struct
 	SOCKET port;
 	int wait;
 	char *addr;
+	int* pDoExit;
 }
 ctrl_thread_data_t;
 void *ctrl_thread_fn(void *arg);

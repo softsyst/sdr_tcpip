@@ -427,6 +427,52 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t reg, uint8_t *val, int le
 	return 0;
 }
 
+//-cs-
+// The lower 16 I2C registers can be read with the normal read fct, the upper ones are read from the cache
+//
+static int r82xx_read2(struct r82xx_priv *priv, uint8_t reg, uint8_t *val, int len)
+{
+	int rc, i;
+	uint8_t *p = &priv->buf[1];
+
+	priv->buf[0] = reg;
+
+	//rc = rtlsdr_i2c_write_fn(priv->rtl_dev, priv->cfg->i2c_addr, priv->buf, 1);
+	//if (rc < 1)
+	//	return rc;
+	int len2 = len / 2;
+
+	if (reg < 16 && reg != 0)
+	{
+		fprintf(stderr, "%s: i2c rd Wrong register value. Only 0 allowed here\n",  __FUNCTION__);
+		return -1;
+	}
+	if (reg == 0)
+	{
+		rc = rtlsdr_i2c_read_fn(priv->rtl_dev, priv->cfg->i2c_addr, p, len2);
+
+		if (rc != len2) {
+			fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
+				__FUNCTION__, rc, reg, len);
+			if (rc < 0)
+				return rc;
+			return -1;
+		}
+
+		/* Copy data to the output buffer */
+		for (i = 0; i < len2; i++)
+			val[i] = r82xx_bitrev(p[i]);
+	}
+	if (len == 32)
+	{
+		for (i = 16; i < 32; i++)
+			val[i] = r82xx_read_cache_reg(priv, i);
+	}
+
+	return 0;
+}
+//-cs- end
+
 static void print_registers(struct r82xx_priv *priv)
 {
 	uint8_t data[16];
@@ -911,6 +957,13 @@ int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsig
 	uint8_t reg_mask = mask & 0xFF;
 	uint8_t reg_val = data & 0xFF;
 	return r82xx_write_reg_mask(priv, reg, reg_val, reg_mask);
+}
+
+//-cs-
+int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned char* data, int len)
+{
+	uint8_t reg = i2c_register & 0xFF;
+	return r82xx_read2(priv, reg, data, len);
 }
 
 static const int r82xx_bws[]=     {  300,  450,  600,  900, 1100, 1200, 1300, 1500, 1800, 2200, 3000, 5000 };

@@ -47,6 +47,8 @@
 #include "rtl_tcp.h"
 #include "convenience/convenience.h"
 
+#include "tuner_r82xx.h"
+
 #ifdef _WIN32
 #pragma comment(lib, "ws2_32.lib")
 
@@ -58,6 +60,16 @@ typedef int socklen_t;
 #define SOCKET int
 #define SOCKET_ERROR -1
 #endif
+
+#define NUM_I2C_REGISTERS  32
+#define TX_BUF_LEN (NUM_I2C_REGISTERS +4) //2 len, 1 head, 1 tail
+
+int read820T_registers(rtlsdr_dev_t *dev, unsigned char* buf)
+{
+	int ret = -1;
+	ret = rtlsdr_get_tuner_i2c_register(dev, 0, &buf[0], 32);
+	return ret;
+}
 
 //typedef struct 
 //{
@@ -72,6 +84,8 @@ ctrl_thread_data_t ctrl_thread_data;
 void *ctrl_thread_fn(void *arg)
 {
 
+	unsigned char reg_values [NUM_I2C_REGISTERS];
+	unsigned char txbuf [NUM_I2C_REGISTERS+4]; //2 length, 1 head, 1 tail
 	int r = 1;
 	struct timeval tv = { 1,0 };
 	struct linger ling = { 1,0 };
@@ -79,10 +93,12 @@ void *ctrl_thread_fn(void *arg)
 	SOCKET controlSocket;
 	struct sockaddr_in local, remote;
 	socklen_t rlen;
-	uint8_t buf[128];
+
 	int error = 0;
 	int ret = 0, len;
-	fd_set readfds;
+	fd_set connfds;
+	fd_set writefds;
+	int bytesleft, bytessent, index;
 
 	ctrl_thread_data_t *data = (ctrl_thread_data_t *)arg;
 
@@ -90,7 +106,10 @@ void *ctrl_thread_fn(void *arg)
 	int port = data->port;
 	int wait = data->wait;
 	char *addr = data->addr;
+	int* do_exit = data->pDoExit;
 	u_long blockmode = 1;
+
+	memset(reg_values, 0, NUM_I2C_REGISTERS);
 
 
 	memset(&local, 0, sizeof(local));
@@ -111,21 +130,24 @@ void *ctrl_thread_fn(void *arg)
 	r = fcntl(listensocket, F_GETFL, 0);
 	r = fcntl(listensocket, F_SETFL, r | O_NONBLOCK);
 #endif
-	int do_exit = 0;
 
 	while (1) {
 		printf("listening on Control port %d...\n", port);
 		retval = listen(listensocket, 1);
 		if (retval == SOCKET_ERROR)
+#ifdef _WIN32
 			error = WSAGetLastError();
+#else
+			;
+#endif
 		while (1) {
-			FD_ZERO(&readfds);
-			FD_SET(listensocket, &readfds);
+			FD_ZERO(&connfds);
+			FD_SET(listensocket, &connfds);
 			tv.tv_sec = 1;
 			tv.tv_usec = 0;
-			r = select(listensocket + 1, &readfds, NULL, NULL, &tv);
-			if (do_exit) {
-				return -1;
+			r = select(listensocket + 1, &connfds, NULL, NULL, &tv);
+			if (*do_exit) {
+				goto close;
 			}
 			else if (r) {
 				rlen = sizeof(remote);
@@ -137,26 +159,51 @@ void *ctrl_thread_fn(void *arg)
 		setsockopt(controlSocket, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
 
 		printf("Control client accepted!\n");
+		usleep(5000000);
 
 		while (1) {
-			ret = -1;// rtlsdr_ir_query(dev, buf, sizeof(buf));
-			if (ret < 0) {
-				printf("rtlsdr_ctrl_query error %d\n", ret);
-				break;
+			int result = read820T_registers(dev, reg_values);
+			memset(txbuf, 0, TX_BUF_LEN);
+			if (result)
+				goto sleep;
+
+			//Little Endian
+			txbuf[0] = TX_BUF_LEN - 2;
+			txbuf[1] = 0;
+			txbuf[2] = 0x55;
+			memcpy(&txbuf[3], reg_values, NUM_I2C_REGISTERS);
+			txbuf[TX_BUF_LEN - 1] = 0xaa;
+			len = sizeof(txbuf);
+			bytessent = 0;
+			bytesleft = len;
+			index = 0;
+
+			while (bytesleft > 0) {
+				FD_ZERO(&writefds);
+				FD_SET(controlSocket, &writefds);
+				tv.tv_sec = 1;
+				tv.tv_usec = 0;
+				r = select(controlSocket + 1, NULL, &writefds, NULL, &tv);
+				if (r) {
+					bytessent = send(controlSocket, &txbuf[index], bytesleft, 0);
+					bytesleft -= bytessent;
+					index += bytessent;
+				}
+				if (bytessent == SOCKET_ERROR || *do_exit) {
+					goto close;
+				}
 			}
-
-			len = ret;
-
-			ret = send(controlSocket, buf, len, 0);
-			if (ret != len) {
-				printf("incomplete write to Control client: %d != %d\n", ret, len);
-				break;
-			}
-
+sleep:
 			usleep(wait);
 		}
-
+close:
 		closesocket(controlSocket);
+		if (*do_exit)
+		{
+			closesocket(listensocket);
+			printf("Control Thread terminates\n");
+			break;
+		}
 	}
 	return 0;
 }
