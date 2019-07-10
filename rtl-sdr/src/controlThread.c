@@ -64,20 +64,6 @@ typedef int socklen_t;
 #define NUM_I2C_REGISTERS  32
 #define TX_BUF_LEN (NUM_I2C_REGISTERS +4) //2 len, 1 head, 1 tail
 
-int read820T_registers(rtlsdr_dev_t *dev, unsigned char* buf)
-{
-	int ret = -1;
-	ret = rtlsdr_get_tuner_i2c_register(dev, 0, &buf[0], 32);
-	return ret;
-}
-
-//typedef struct 
-//{
-//	rtlsdr_dev_t *dev;
-//	SOCKET port;
-//	int wait;
-//	char *addr;
-//}
 
 ctrl_thread_data_t ctrl_thread_data;
 
@@ -162,7 +148,7 @@ void *ctrl_thread_fn(void *arg)
 		usleep(5000000);
 
 		while (1) {
-			int result = read820T_registers(dev, reg_values);
+			int result = rtlsdr_get_tuner_i2c_register(dev, reg_values, NUM_I2C_REGISTERS);
 			memset(txbuf, 0, TX_BUF_LEN);
 			if (result)
 				goto sleep;

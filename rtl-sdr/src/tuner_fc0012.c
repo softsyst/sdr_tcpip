@@ -54,38 +54,91 @@ static int fc0012_readreg(void *dev, uint8_t reg, uint8_t *val)
 	return 0;
 }
 
+/* expose/permit tuner specific i2c register hacking! */
+int fc0012_set_i2c_register(void *dev, unsigned i2c_register, unsigned data)
+{
+	uint8_t reg = i2c_register & 0xFF;
+	uint8_t reg_val = data & 0xFF;
+	return fc0012_writereg(dev, reg, reg_val);
+}
+
+int fc0012_get_i2c_register(void *dev, unsigned char* data, int len)
+{
+	int len1;
+
+	data[0] = 0;
+	// The lower 16 I2C registers can be read with the normal read fct, the upper ones are read from the cache
+	if(len < 16)
+		len1 = len;
+	else
+		len1 = 16;
+	if (rtlsdr_i2c_write_fn(dev, FC0012_I2C_ADDR, data, 1) < 0)
+		return -1;
+	if (rtlsdr_i2c_read_fn(dev, FC0012_I2C_ADDR, data, len1) < 0)
+		return -1;
+
+	if(len > 16)
+	{
+		len1 = len - 16;
+		data[16] = 16;
+		if (rtlsdr_i2c_write_fn(dev, FC0012_I2C_ADDR, data+16, 1) < 0)
+			return -1;
+		if (rtlsdr_i2c_read_fn(dev, FC0012_I2C_ADDR, data+16, len1) < 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+static int print_registers(void *dev)
+{
+	uint8_t data[32];
+	unsigned int i;
+
+	if (fc0012_get_i2c_register(dev, data, 32) < 0)
+		return -1;
+	for(i=0; i<16; i++)
+		printf("%02x ", data[i]);
+	printf("\n");
+	for(i=16; i<32; i++)
+		printf("%02x ", data[i]);
+	printf("\n");
+	return 0;
+}
+
+
 /* Incomplete list of register settings:
  *
- * Name			Reg	Bits	Desc
+ * Name				Reg		BitsDesc
  * CHIP_ID			0x00	0-7	Chip ID (constant 0xA1)
  * RF_A				0x01	0-3	Number of count-to-9 cycles in RF
- *					divider (suggested: 2..9)
+ *								divider (suggested: 2..9)
  * RF_M				0x02	0-7	Total number of cycles (to-8 and to-9)
- *					in RF divider
+ *								in RF divider
  * RF_K_HIGH		0x03	0-6	Bits 8..14 of fractional divider
  * RF_K_LOW			0x04	0-7	Bits 0..7 of fractional RF divider
  * RF_OUTDIV_A		0x05	3-7	Power of two required?
  * LNA_POWER_DOWN	0x06	0	Set to 1 to switch off low noise amp
  * RF_OUTDIV_B		0x06	1	Set to select 3 instead of 2 for the
- *					RF output divider
+ *								RF output divider
  * VCO_SPEED		0x06	3	Select tuning range of VCO:
- *					 0 = Low range, (ca. 1.1 - 1.5GHz)
- *					 1 = High range (ca. 1.4 - 1.8GHz)
+ *								 0 = Low range, (ca. 1.1 - 1.5GHz)
+ *								 1 = High range (ca. 1.4 - 1.8GHz)
  * BANDWIDTH		0x06	6-7	Set bandwidth. 6MHz = 0x80, 7MHz=0x40
- *					8MHz=0x00
+ *								8MHz=0x00
  * XTAL_SPEED		0x07	5	Set to 1 for 28.8MHz Crystal input
- *					or 0 for 36MHz
+ *								or 0 for 36MHz
  * <agc params>		0x08	0-7
  * EN_CAL_RSSI		0x09	4 	Enable calibrate RSSI
- *					(Receive Signal Strength Indicator)
+ *								(Receive Signal Strength Indicator)
  * LNA_FORCE		0x0d	0
  * AGC_FORCE		0x0d	?
+ * VCO_CALIB		0x0e	7	Set high then low to calibrate VCO
+ *								(fast lock?)
+ * VCO_VOLTAGE		0x0e	0-6	Read Control voltage of VCO
+ *								(big value -> low freq)
  * LNA_GAIN			0x13	3-4	Low noise amp gain
  * LNA_COMPS		0x15	3	?
- * VCO_CALIB		0x0e	7	Set high then low to calibrate VCO
- *					 (fast lock?)
- * VCO_VOLTAGE		0x0e	0-6	Read Control voltage of VCO
- *					 (big value -> low freq)
  */
 
 int fc0012_init(void *dev)
@@ -317,54 +370,29 @@ int fc0012_set_gain(void *dev, int gain)
 	uint8_t tmp = 0;
 
 	ret = fc0012_readreg(dev, 0x13, &tmp);
-	printf("reg13 = 0x%02x\n",tmp);
 
 	/* mask bits off */
 	tmp &= 0xe0;
 
 	switch (gain) {
-/*	case -99:		// -9.9 dB
+	case -99:		/* -9.9 dB */
 		tmp |= 0x02;
 		break;
-	case -40:		// -4 dB
+	case -40:		/* -4 dB */
 		break;
 	case 71:
-		tmp |= 0x08;	// 7.1 dB
+		tmp |= 0x08;	/* 7.1 dB */
 		break;
 	case 179:
-		tmp |= 0x17;	// 17.9 dB
+		tmp |= 0x17;	/* 17.9 dB */
 		break;
 	case 192:
 	default:
-		tmp |= 0x10;	// 19.2 dB
-		break;*/
-	case 0:
-		tmp |= 0x00;
-		break;
-	case 10:
-		tmp |= 0x01;
-		break;
-	case 20:
-		tmp |= 0x02;
-		break;
-	case 30:
-		tmp |= 0x04;
-		break;
-	case 40:
-		tmp |= 0x08;
-		break;
-	case 50:
-		tmp |= 0x10;
-		break;
-	case 60:
-		break;
-	case 70:
-		break;
-	default:
+		tmp |= 0x10;	/* 19.2 dB */
 		break;
 	}
 
 	ret = fc0012_writereg(dev, 0x13, tmp);
-
+	//print_registers(dev);
 	return ret;
 }

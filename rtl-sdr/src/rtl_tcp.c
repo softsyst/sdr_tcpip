@@ -371,6 +371,11 @@ static void *command_worker(void *arg)
 			printf("set tuner bandwidth to %i Hz\n", bandwidth);
 			verbose_set_bandwidth(dev, bandwidth);
 			break;
+		case SET_I2C_TUNER_REGISTER:
+			tmp = ntohl(cmd.param);
+			printf("set i2c register x%03X to x%03X with mask x%02X\n", (tmp >> 20) & 0xfff, tmp & 0xfff, (tmp >> 12) & 0xff );
+			rtlsdr_set_tuner_i2c_register(dev, (tmp >> 20) & 0xfff, (tmp >> 12) & 0xff, tmp & 0xfff);
+			break;
 		default:
 			break;
 		}
@@ -378,86 +383,12 @@ static void *command_worker(void *arg)
 	}
 }
 
-struct ir_thread_data
-{
-	rtlsdr_dev_t *dev;
-	SOCKET port;
-	int wait;
-	char *addr;
-};
-
-void *ir_thread_fn(void *arg)
-{
-	int r = 1;
-	struct linger ling = { 1,0 };
-	SOCKET listensocket;
-	SOCKET irsocket;
-	struct sockaddr_in local, remote;
-	socklen_t rlen;
-	uint8_t buf[128];
-	int ret = 0, len;
-
-	struct ir_thread_data *data = (struct ir_thread_data *)arg;
-
-	rtlsdr_dev_t *dev = data->dev;
-	int port = data->port;
-	int wait = data->wait;
-	char *addr = data->addr;
-
-
-	memset(&local, 0, sizeof(local));
-	local.sin_family = AF_INET;
-	local.sin_port = htons(port);
-	local.sin_addr.s_addr = inet_addr(addr);
-
-	listensocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	r = 1;
-	setsockopt(listensocket, SOL_SOCKET, SO_REUSEADDR, (char *)&r, sizeof(int));
-	setsockopt(listensocket, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
-	bind(listensocket, (struct sockaddr *)&local, sizeof(local));
-
-
-	while (1) {
-		printf("listening on IR port %d...\n", port);
-		listen(listensocket, 1);
-
-		irsocket = accept(listensocket, (struct sockaddr *)&remote, &rlen);
-		setsockopt(irsocket, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
-
-		printf("IR client accepted!\n");
-
-		while (1) {
-			ret = rtlsdr_ir_query(dev, buf, sizeof(buf));
-			if (ret < 0) {
-				printf("rtlsdr_ir_query error %d\n", ret);
-				break;
-			}
-
-			len = ret;
-
-			ret = send(irsocket, buf, len, 0);
-			if (ret != len) {
-				printf("incomplete write to ir client: %d != %d\n", ret, len);
-				break;
-			}
-
-			usleep(wait);
-		}
-
-		closesocket(irsocket);
-	}
-
-	return 0;
-}
 
 int main(int argc, char **argv)
 {
 	int r, opt, i;
 	char* addr = "127.0.0.1";
 	int port = 1234;
-	int port_ir = 0;
-	int wait_ir = 10000;
-	//pthread_t thread_ir;
 	pthread_t thread_ctrl; //-cs- for periodically reading the register values
 	uint32_t frequency = 100000000, samp_rate = 2048000;
 	enum rtlsdr_ds_mode ds_mode = RTLSDR_DS_IQ;
@@ -475,7 +406,8 @@ int main(int argc, char **argv)
 	 *   512 samples @ 48 kHz ~= 10.6 ms
 	 *   512 samples @  8 kHz  = 64 ms
 	 */
-	uint32_t buf_len = 32 * 512;
+	//-cs- uint32_t buf_len = 32 * 512;
+	uint32_t buf_len = 4 *32 * 512;
 	int dev_index = 0;
 	int dev_given = 0;
 	int gain = 0;
@@ -502,9 +434,9 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.8, 02.07.2019\n\n");
+		   "Version 0.81 for QIRX, 08.07.2019\n\n");
 
-	while ((opt = getopt(argc, argv, "a:p:f:g:i:s:b:n:d:P:TI:W:l:w:D:v")) != -1) {
+	while ((opt = getopt(argc, argv, "a:p:f:g:s:b:n:d:P:T:l:w:D:v")) != -1) {
 		switch (opt) {
 		case 'd':
 			dev_index = verbose_device_search(optarg);
@@ -524,12 +456,6 @@ int main(int argc, char **argv)
 			break;
 		case 'p':
 			port = atoi(optarg);
-			break;
-		case 'I':
-			port_ir = atoi(optarg);
-			break;
-		case 'W':
-			wait_ir = atoi(optarg);
 			break;
 		case 'b':
 			buf_num = atoi(optarg);
@@ -652,12 +578,6 @@ int main(int argc, char **argv)
 	pthread_cond_init(&cond, NULL);
 	pthread_cond_init(&exit_cond, NULL);
 
-	//if (port_ir) {
-	//	struct ir_thread_data data = {.dev = dev, .port = port_ir, .wait = wait_ir, .addr = addr};
-
-	//	pthread_create(&thread_ir, NULL, &ir_thread_fn, (void *)(&data));
-	//}
-
 	ctrl_thread_data_t ctrldata = {.dev = dev, .port = port + 10, .wait = 500000, .addr = addr, .pDoExit = &do_exit_thrd_ctrl };
 	pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
 
@@ -763,7 +683,6 @@ out:
 
 	do_exit_thrd_ctrl = 1;
 	pthread_join(thread_ctrl, &status);
-	//if (port_ir) pthread_join(thread_ir, &status);
 	closesocket(s);
 #ifdef _WIN32
 	WSACleanup();

@@ -32,5 +32,6 @@
 int fc0012_init(void *dev);
 int fc0012_set_params(void *dev, uint32_t freq, uint32_t bandwidth);
 int fc0012_set_gain(void *dev, int gain);
+int fc0012_get_i2c_register(void *dev, unsigned char* data, int len);
 
 #endif

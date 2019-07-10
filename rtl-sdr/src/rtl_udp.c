@@ -116,7 +116,7 @@ void usage(void)
 }
 
 #ifdef _WIN32
-int gettimeofday(struct timeval *tv, void* ignored)
+/*int gettimeofday(struct timeval *tv, void* ignored)
 {
 	FILETIME ft;
 	unsigned __int64 tmp = 0;
@@ -135,7 +135,7 @@ int gettimeofday(struct timeval *tv, void* ignored)
 		tv->tv_usec = (long)(tmp % 1000000UL);
 	}
 	return 0;
-}
+}*/
 
 BOOL WINAPI
 sighandler(int signum)

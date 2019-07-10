@@ -51,7 +51,7 @@ static const uint8_t r82xx_init_array[] = {
 			//Bit 5 Filter gain 3db = 0dB
 			//Bit 2..0 LNA power control = 2
 	0x70,	//Reg 0x07
-			//Bit 7 Img_R = image negative
+			//Bit 7  Img_R = image negative (Sideband: 0=lower, 1=upper)
 			//Bit 6 Mixer power = on
 			//Bit 5 Mixer current control = normal current
 			//Bit 4 Mixer gain mode = auto mode
@@ -71,10 +71,10 @@ static const uint8_t r82xx_init_array[] = {
 	0x6b,	//Reg 0x0b
 			//Bit 7..5 Filter bandwidth manual course tunnel = 3 (6 MHz)
 			//Bit 3..0 High pass filter corner control = 11
-	0xe8, 	//Reg 0x0c
+	0xf0, 	//Reg 0x0c
 			//Bit 6 VGA power control = on
-			//Bit 4 VGA GAIN manual / pin selector = IF vga gain controlled by vga_code[5:0]
-			//Bit 3..0 IF vga manual gain control = 8 (16.3 dB)
+			//Bit 4 VGA GAIN manual / pin selector = IF vga gain controlled by vagc pin
+			//Bit 3..0 IF vga manual gain control = 0
 	0x53, 	//Reg 0x0d
 			//Bit 7..4 LNA agc power detector voltage threshold high setting = 5 (0.84V)
 			//Bit 3..0 LNA agc power detector voltage threshold low setting = 3 (0.64V)
@@ -86,6 +86,7 @@ static const uint8_t r82xx_init_array[] = {
 			//Bit 4 Clock out pin control = clk output on
 			//Bit 2 set cali clk = off
 			//Bit 1 AGC clk control = internal agc clock on
+			//Bit 0 GPIO
 	0x6c, 	//Reg 0x10
 			//Bit 7..5 PLL to Mixer divider number control = 3 (mixer in = vco out)
 			//Bit 4 PLL Reference frequency Divider = 0 (fref=xtal_freq)
@@ -114,6 +115,7 @@ static const uint8_t r82xx_init_array[] = {
 			//Bit 4 Switch agc_pin: agc=agc_in
 	0x60, 	//Reg 0x1a
 			//Bit 7..6 Tracking Filter switch = Bypass
+			//Bit 5..4 AGC clk: 00=300ms, 01=300ms, 10=80ms, 11=20ms
 			//Bit 3..2 PLL auto tune clock rate = 128 kHz
 			//Bit 1..0 RF FILTER band selection = highest band
 	0x00,	//Reg 0x1b
@@ -399,22 +401,17 @@ static uint8_t r82xx_bitrev(uint8_t byte)
 	return (lut[byte & 0xf] << 4) | lut[byte >> 4];
 }
 
-static int r82xx_read(struct r82xx_priv *priv, uint8_t reg, uint8_t *val, int len)
+static int r82xx_read(struct r82xx_priv *priv, uint8_t *val, int len)
 {
 	int rc, i;
-	uint8_t *p = &priv->buf[1];
+	uint8_t *p = &priv->buf[0];
 
-	priv->buf[0] = reg;
-
-	//rc = rtlsdr_i2c_write_fn(priv->rtl_dev, priv->cfg->i2c_addr, priv->buf, 1);
-	//if (rc < 1)
-	//	return rc;
-
+	//up to 16 registers can be read
 	rc = rtlsdr_i2c_read_fn(priv->rtl_dev, priv->cfg->i2c_addr, p, len);
 
 	if (rc != len) {
-		fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
-			   __FUNCTION__, rc, reg, len);
+		fprintf(stderr, "%s: i2c rd failed=%d len=%d\n",
+			   __FUNCTION__, rc, len);
 		if (rc < 0)
 			return rc;
 		return -1;
@@ -427,73 +424,28 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t reg, uint8_t *val, int le
 	return 0;
 }
 
-//-cs-
-// The lower 16 I2C registers can be read with the normal read fct, the upper ones are read from the cache
-//
-static int r82xx_read2(struct r82xx_priv *priv, uint8_t reg, uint8_t *val, int len)
-{
-	int rc, i;
-	uint8_t *p = &priv->buf[1];
-
-	priv->buf[0] = reg;
-
-	//rc = rtlsdr_i2c_write_fn(priv->rtl_dev, priv->cfg->i2c_addr, priv->buf, 1);
-	//if (rc < 1)
-	//	return rc;
-	int len2 = len / 2;
-
-	if (reg < 16 && reg != 0)
-	{
-		fprintf(stderr, "%s: i2c rd Wrong register value. Only 0 allowed here\n",  __FUNCTION__);
-		return -1;
-	}
-	if (reg == 0)
-	{
-		rc = rtlsdr_i2c_read_fn(priv->rtl_dev, priv->cfg->i2c_addr, p, len2);
-
-		if (rc != len2) {
-			fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
-				__FUNCTION__, rc, reg, len);
-			if (rc < 0)
-				return rc;
-			return -1;
-		}
-
-		/* Copy data to the output buffer */
-		for (i = 0; i < len2; i++)
-			val[i] = r82xx_bitrev(p[i]);
-	}
-	if (len == 32)
-	{
-		for (i = 16; i < 32; i++)
-			val[i] = r82xx_read_cache_reg(priv, i);
-	}
-
-	return 0;
-}
-//-cs- end
 
 static void print_registers(struct r82xx_priv *priv)
 {
-	uint8_t data[16];
+	uint8_t data[5];
 	int rc;
 	unsigned int i;
 
-	rc = r82xx_read(priv, 0x00, data, sizeof(data));
+	rc = r82xx_read(priv, data, sizeof(data));
 	if (rc < 0)
 		return;
 	for(i=0; i<sizeof(data); i++)
 		printf("%02x ", data[i]);
 	printf("\n");
-	for(i=16; i<32; i++)
+	for(i=sizeof(data); i<32; i++)
 		printf("%02x ", r82xx_read_cache_reg(priv, i));
 	printf("\n");
 }
 
+
 /*
  * r82xx tuning logic
  */
-
 static int r82xx_set_mux(struct r82xx_priv *priv, uint32_t freq)
 {
 	const struct r82xx_freq_range *range;
@@ -595,7 +547,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 		mix_div = mix_div << 1;
 	}
 
-	rc = r82xx_read(priv, 0x00, data, sizeof(data));
+	rc = r82xx_read(priv, data, sizeof(data));
 	if (rc < 0)
 		return rc;
 
@@ -676,7 +628,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	for (i = 0; i < 2; i++) {
 
 		/* Check if PLL has locked */
-		rc = r82xx_read(priv, 0x00, data, 3);
+		rc = r82xx_read(priv, data, 3);
 		if (rc < 0)
 			return rc;
 		if (data[2] & 0x40)
@@ -835,7 +787,7 @@ static int r82xx_set_tv_standard(struct r82xx_priv *priv,
 				return rc;
 
 			/* Check if calibration worked */
-			rc = r82xx_read(priv, 0x00, data, sizeof(data));
+			rc = r82xx_read(priv, data, sizeof(data));
 			if (rc < 0)
 				return rc;
 
@@ -882,71 +834,25 @@ static const int r82xx_mixer_gain_steps[]  = {
 
 int r82xx_set_gain(struct r82xx_priv *priv, int set_manual_gain, int gain)
 {
-  int rc;
+	int rc;
 
-  int i, total_gain = 0;
-  uint8_t mix_index = 0, lna_index = 0;
-  uint8_t vga_index = 0;
+	int i, total_gain = 0;
+	uint8_t vga_index = 0;
 
-  set_manual_gain = 0;
-  if (set_manual_gain) {
-
-	/* LNA auto off */
-	rc = r82xx_write_reg_mask(priv, 0x05, 0x10, 0x10);
+	if (set_manual_gain) {
+		/* set VGA gain */
+		for (i = 0; i < 15; i++) {
+			if (total_gain >= gain)
+				break;
+			total_gain += r82xx_vga_gain_steps[++vga_index];
+		}
+		rc = r82xx_write_reg_mask(priv, 0x0c, vga_index, 0x1f); //IF vga gain controlled by vga_code[3:0]
+	} else
+		rc = r82xx_write_reg_mask(priv, 0x0c, 0x10, 0x1f); //IF vga gain controlled by vagc pin
 	if (rc < 0)
-	  return rc;
-
-	/* Mixer auto off */
-	rc = r82xx_write_reg_mask(priv, 0x07, 0, 0x10);
-	if (rc < 0)
-	  return rc;
-
-	for (i = 0; i < 15; i++) {
-	  if (total_gain >= gain)
-		break;
-
-	  total_gain += r82xx_lna_gain_steps[++lna_index];
-
-	  if (total_gain >= gain)
-		break;
-
-	  total_gain += r82xx_mixer_gain_steps[++mix_index];
-	}
-
-	/* set LNA gain */
-	rc = r82xx_write_reg_mask(priv, 0x05, lna_index, 0x0f);
-	if (rc < 0)
-	  return rc;
-
-	/* set Mixer gain */
-	rc = r82xx_write_reg_mask(priv, 0x07, mix_index, 0x0f);
-	if (rc < 0)
-	  return rc;
-  } else {
-	/* LNA */
-	rc = r82xx_write_reg_mask(priv, 0x05, 0, 0x10); //LNA gain mode = auto
-	if (rc < 0)
-	  return rc;
-
-	/* Mixer */
-	rc = r82xx_write_reg_mask(priv, 0x07, 0x10, 0x10); //Mixer gain mode = auto
-	if (rc < 0)
-	  return rc;
-
-    /* set VGA gain */
-    for (i = 0; i < 15; i++) {
-      if (total_gain >= gain)
-   	    break;
-	  total_gain += r82xx_vga_gain_steps[++vga_index];
-    }
-	/*if(gain==0)
-		rc = r82xx_write_reg_mask(priv, 0x0c, 0x10, 0x0f);*/
-    rc = r82xx_write_reg_mask(priv, 0x0c, vga_index, 0x0f);
-	if (rc < 0)
-	  return rc;
-  }
-  //print_registers(priv);
-  return 0;
+		return rc;
+	//print_registers(priv);
+	return 0;
 }
 
 
@@ -960,11 +866,24 @@ int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsig
 }
 
 //-cs-
-int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned char* data, int len)
+int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int len)
 {
-	uint8_t reg = i2c_register & 0xFF;
-	return r82xx_read2(priv, reg, data, len);
+	int rc, i, len1;
+
+	// The lower 16 I2C registers can be read with the normal read fct, the upper ones are read from the cache
+	if(len < 5)
+		len1 = len;
+	else
+		len1 = 5;
+	rc = r82xx_read(priv, data, len1);
+	if (rc < 0)
+		return rc;
+	if(len > 5)
+		for (i = 5; i < len; i++)
+			data[i] = r82xx_read_cache_reg(priv, i);
+	return 0;
 }
+//-cs- end
 
 static const int r82xx_bws[]=     {  300,  450,  600,  900, 1100, 1200, 1300, 1500, 1800, 2200, 3000, 5000 };
 static const uint8_t r82xx_0xa[]= { 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0e, 0x0f, 0x0f, 0x04, 0x0b };
