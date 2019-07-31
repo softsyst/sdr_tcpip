@@ -62,7 +62,9 @@ typedef int socklen_t;
 #endif
 
 #define NUM_I2C_REGISTERS  32
-#define TX_BUF_LEN (NUM_I2C_REGISTERS +4) //2 len, 1 head, 1 tail
+#define TX_BUF_LEN (NUM_I2C_REGISTERS+3) //2 len, 1 command
+
+const int REPORT_I2C_REGS = 0x48;   /* perodically report I2C registers */
 
 
 ctrl_thread_data_t ctrl_thread_data;
@@ -71,7 +73,7 @@ void *ctrl_thread_fn(void *arg)
 {
 
 	unsigned char reg_values [NUM_I2C_REGISTERS];
-	unsigned char txbuf [NUM_I2C_REGISTERS+4]; //2 length, 1 head, 1 tail
+	unsigned char txbuf [NUM_I2C_REGISTERS+3]; //1 command, 2 length
 	int r = 1;
 	struct timeval tv = { 1,0 };
 	struct linger ling = { 1,0 };
@@ -153,12 +155,11 @@ void *ctrl_thread_fn(void *arg)
 			if (result)
 				goto sleep;
 
-			//Little Endian
-			txbuf[0] = TX_BUF_LEN - 2;
+			//Big Endian / Network Byte Order
+			txbuf[0] = REPORT_I2C_REGS;
 			txbuf[1] = 0;
-			txbuf[2] = 0x55;
+			txbuf[2] = NUM_I2C_REGISTERS;
 			memcpy(&txbuf[3], reg_values, NUM_I2C_REGISTERS);
-			txbuf[TX_BUF_LEN - 1] = 0xaa;
 			len = sizeof(txbuf);
 			bytessent = 0;
 			bytesleft = len;

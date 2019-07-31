@@ -434,7 +434,7 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.81 for QIRX, 08.07.2019\n\n");
+		   "Version 0.82 for QIRX, 30.07.2019\n\n");
 
 	while ((opt = getopt(argc, argv, "a:p:f:g:s:b:n:d:P:T:l:w:D:v")) != -1) {
 		switch (opt) {
@@ -578,7 +578,7 @@ int main(int argc, char **argv)
 	pthread_cond_init(&cond, NULL);
 	pthread_cond_init(&exit_cond, NULL);
 
-	ctrl_thread_data_t ctrldata = {.dev = dev, .port = port + 10, .wait = 500000, .addr = addr, .pDoExit = &do_exit_thrd_ctrl };
+	ctrl_thread_data_t ctrldata = {.dev = dev, .port = port + 1, .wait = 500000, .addr = addr, .pDoExit = &do_exit_thrd_ctrl };
 	pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
 
 	memset(&local,0,sizeof(local));
