@@ -85,6 +85,7 @@ struct r82xx_priv {
 	uint8_t						input;
 	int							has_lock;
 	int							init_done;
+	int							sideband;
 
 	/* Store current mode */
 	uint32_t				delsys;
@@ -114,7 +115,8 @@ int r82xx_standby(struct r82xx_priv *priv);
 int r82xx_init(struct r82xx_priv *priv);
 int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq);
 int r82xx_set_gain(struct r82xx_priv *priv, int set_manual_gain, int gain);
+int r82xx_set_bandwidth(struct r82xx_priv *priv, int bandwidth,  uint32_t * applied_bw, int apply);
 int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned data, unsigned mask);
-int r82xx_set_bandwidth(struct r82xx_priv *priv, int bandwidth,  uint32_t rate, uint32_t * applied_bw, int apply);
-int r82xx_set_if_gain(struct r82xx_priv *priv, int gain);
+int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int len);
+int r82xx_set_sideband(struct r82xx_priv *priv, int sideband);
 #endif

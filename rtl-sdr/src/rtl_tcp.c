@@ -1,3 +1,4 @@
+
 /*
  * rtl-sdr, turns your Realtek RTL2832 based DVB dongle into a SDR receiver
  * Copyright (C) 2012 by Steve Markgraf <steve@steve-m.de>
@@ -97,22 +98,21 @@ void usage(void)
 {
 	printf("\n"
 		"Usage:\t[-a listen address]\n"
-		"\t[-p listen port (default: 1234)]\n"
-		"\t[-I infrared sensor listen port (default: 0=none)]\n"
-		"\t[-W infrared sensor query wait interval usec (default: 10000)]\n"
+		"\t[-b number of buffers (default: 15, set by library)]\n"
+		"\t[-d device index or serial (default: 0)]\n"
 		"\t[-f frequency to tune to [Hz]]\n"
 		"\t[-g gain in dB (default: 0 for auto)]\n"
-		"\t[-s samplerate in Hz (default: 2048000 Hz)]\n"
-		"\t[-b number of buffers (default: 15, set by library)]\n"
-		"\t[-l length of single buffer in units of 512 samples (default: 32 was 256)]\n"
+		"\t[-l length of single buffer in units of 512 samples (default: 128)]\n"
 		"\t[-n max number of linked list buffers to keep (default: 500)]\n"
+		"\t[-p listen port (default: 1234)]\n"
+		"\t[-s samplerate in Hz (default: 2048000 Hz)]\n"
+		"\t[-u upper sideband for R820T (default: lower sideband)]\n"
+		"\t[-v increase verbosity (default: 0)]\n"
 		"\t[-w rtlsdr tuner bandwidth [Hz] (for R820T and E4000 tuners)]\n"
-		"\t[-d device index or serial (default: 0)]\n"
-		"\t[-P ppm_error (default: 0)]\n"
-		"\t[-T enable bias-T on GPIO PIN 0 (works for rtl-sdr.com v3 dongles)]\n"
 		"\t[-D direct_sampling_mode (default: 0, 1 = I, 2 = Q, 3 = I below threshold, 4 = Q below threshold)]\n"
 		"\t[-D direct_sampling_threshold_frequency (default: 0 use tuner specific frequency threshold for 3 and 4)]\n"
-		"\t[-v increase verbosity (default: 0)]\n");
+		"\t[-P ppm_error (default: 0)]\n"
+		"\t[-T enable bias-T on GPIO PIN 0 (works for rtl-sdr.com v3 dongles)]\n");
 	exit(1);
 }
 
@@ -245,6 +245,8 @@ static void *tcp_worker(void *arg)
 	}
 }
 
+//extern void print_demod_register(rtlsdr_dev_t *dev, uint8_t page);
+
 static int set_gain_by_index(rtlsdr_dev_t *_dev, unsigned int index)
 {
 	int res = 0;
@@ -361,6 +363,8 @@ static void *command_worker(void *arg)
 		case SET_TUNER_GAIN_BY_INDEX:
 			printf("set tuner gain by index %ld\n", ntohl(cmd.param));
 			set_gain_by_index(dev, ntohl(cmd.param));
+			//print_demod_register(dev, 0);
+			//print_demod_register(dev, 1);
 			break;
 		case SET_BIAS_TEE:
 			printf("set bias tee %ld\n", ntohl(cmd.param));
@@ -371,10 +375,18 @@ static void *command_worker(void *arg)
 			printf("set tuner bandwidth to %i Hz\n", bandwidth);
 			verbose_set_bandwidth(dev, bandwidth);
 			break;
-		case SET_I2C_TUNER_REGISTER:
+		case SET_I2C_TUNER_REGISTER://0x43
 			tmp = ntohl(cmd.param);
 			printf("set i2c register x%03X to x%03X with mask x%02X\n", (tmp >> 20) & 0xfff, tmp & 0xfff, (tmp >> 12) & 0xff );
 			rtlsdr_set_tuner_i2c_register(dev, (tmp >> 20) & 0xfff, (tmp >> 12) & 0xff, tmp & 0xfff);
+			break;
+		case SET_SIDEBAND://0x46
+			tmp = ntohl(cmd.param) & 1;
+			if(tmp)
+				printf("set to upper sideband\n");
+			else
+				printf("set to lower sideband\n");
+			rtlsdr_set_tuner_sideband(dev, tmp);
 			break;
 		default:
 			break;
@@ -395,6 +407,7 @@ int main(int argc, char **argv)
 	uint32_t ds_temp, ds_threshold = 0;
 	struct sockaddr_in local, remote;
 	uint32_t buf_num = 0;
+	int sideband = 0;
 	/* buf_len:
 	 * must be multiple of 512 - else it will be overwritten
 	 * in rtlsdr_read_async() in librtlsdr.c with DEFAULT_BUF_LENGTH (= 16*32 *512 = 512 *512)
@@ -434,10 +447,16 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.82 for QIRX, 30.07.2019\n\n");
+		   "Version 0.83 for QIRX, 31.07.2019\n\n");
 
-	while ((opt = getopt(argc, argv, "a:p:f:g:s:b:n:d:P:T:l:w:D:v")) != -1) {
+	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:p:s:uI:vI:w:D:P:TI")) != -1) {
 		switch (opt) {
+		case 'a':
+			addr = optarg;
+			break;
+		case 'b':
+			buf_num = atoi(optarg);
+			break;
 		case 'd':
 			dev_index = verbose_device_search(optarg);
 			dev_given = 1;
@@ -448,35 +467,26 @@ int main(int argc, char **argv)
 		case 'g':
 			gain = (int)(atof(optarg) * 10); /* tenths of a dB */
 			break;
-		case 's':
-			samp_rate = (uint32_t)atofs(optarg);
-			break;
-		case 'a':
-			addr = optarg;
-			break;
-		case 'p':
-			port = atoi(optarg);
-			break;
-		case 'b':
-			buf_num = atoi(optarg);
-			break;
 		case 'l':
 			buf_len = 512 * atoi(optarg);
 			break;
 		case 'n':
 			llbuf_num = atoi(optarg);
 			break;
-		case 'P':
-			ppm_error = atoi(optarg);
+		case 'p':
+			port = atoi(optarg);
 			break;
-		case 'T':
-			enable_biastee = 1;
+		case 's':
+			samp_rate = (uint32_t)atofs(optarg);
 			break;
-		case 'w':
-			bandwidth = (uint32_t)atofs(optarg);
+		case 'u':
+			sideband = 1;
 			break;
 		case 'v':
 			++verbosity;
+			break;
+		case 'w':
+			bandwidth = (uint32_t)atofs(optarg);
 			break;
 		case 'D':
 			ds_temp = (uint32_t)( atofs(optarg) + 0.5 );
@@ -484,6 +494,12 @@ int main(int argc, char **argv)
 				ds_mode = (enum rtlsdr_ds_mode)ds_temp;
 			else
 				ds_threshold = ds_temp;
+			break;
+		case 'P':
+			ppm_error = atoi(optarg);
+			break;
+		case 'T':
+			enable_biastee = 1;
 			break;
 		default:
 			usage();
@@ -560,7 +576,11 @@ int main(int argc, char **argv)
 		else
 			fprintf(stderr, "Tuner gain set to %f dB.\n", gain/10.0);
 	}
-
+	if(sideband)
+	{
+		rtlsdr_set_tuner_sideband(dev, sideband);
+		fprintf(stderr, "Set to upper sideband\n");
+	}
 	verbose_set_bandwidth(dev, bandwidth);
 
 	rtlsdr_set_bias_tee(dev, enable_biastee);

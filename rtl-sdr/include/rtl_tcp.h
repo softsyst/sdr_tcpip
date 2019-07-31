@@ -44,12 +44,27 @@ enum RTL_TCP_COMMANDS {
     SET_RTL_CRYSTAL           = 0x0B,
     SET_TUNER_CRYSTAL         = 0x0C,
     SET_TUNER_GAIN_BY_INDEX   = 0x0D,
-    /* prev code - used in ExtIO - to build compatible rtl_tcp.exe */
-    SET_BIAS_TEE              = 0x0F,
+#if 1
+    /* development branch since 2018-10-03 */
+    SET_BIAS_TEE              = 0x0E,
     SET_TUNER_BANDWIDTH       = 0x40,
+#else
+    /* prev code - used in ExtIO - to build compatible rtl_tcp.exe */
+    SET_TUNER_BANDWIDTH       = 0x0E,
+    SET_BIAS_TEE              = 0x0F
+#endif
     UDP_ESTABLISH             = 0x41,
     UDP_TERMINATE             = 0x42,
-    SET_I2C_TUNER_REGISTER    = 0x43,   /* for experiments: data: 31 .. 16: register; 15 .. 8: mask; 7 .. 0: data */
+    SET_I2C_TUNER_REGISTER    = 0x43,   /* for experiments: 32 bit data word:
+                                         * 31 .. 20: register (12 bits)
+                                         * 19 .. 12: mask (8 bits)
+                                         * 11 ..  0: data (12 bits) */
+    SET_I2C_TUNER_OVERRIDE    = 0x44,   /* encoding as with SET_I2C_TUNER_REGISTER
+                                         * data (bits 11 .. 0) > 255 removes override */
+    SET_TUNER_BW_IF_CENTER    = 0x45,   /* freq from SET_FREQUENCY stays in center;
+                                         * the bandwidth (from SET_TUNER_BANDWIDTH)
+                                         * is set to be centered at given IF frequency */
+    SET_SIDEBAND              = 0x46,	/* Mixer Sideband for R820T */
 };
 typedef struct
 {

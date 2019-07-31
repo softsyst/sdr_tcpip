@@ -241,6 +241,14 @@ RTLSDR_API int rtlsdr_set_and_get_tuner_bandwidth(rtlsdr_dev_t *dev, uint32_t bw
 
 RTLSDR_API int rtlsdr_set_tuner_bandwidth(rtlsdr_dev_t *dev, uint32_t bw );
 
+/*!
+ * Set the mixer sideband for the device.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param sideband mixer sideband 0 means lower sideband, 1 means upper sideband.
+ * \return 0 on success
+ */
+RTLSDR_API int rtlsdr_set_tuner_sideband(rtlsdr_dev_t *dev, int sideband);
 
 /*!
  * Get actual gain the device is configured to.
@@ -477,7 +485,7 @@ RTLSDR_API int rtlsdr_set_opt_string(rtlsdr_dev_t *dev, const char *opts, int ve
  */
 RTLSDR_API int rtlsdr_set_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned i2c_register, unsigned mask, unsigned data);
 
-RTLSDR_API int rtlsdr_get_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned i2c_register, unsigned char* data);
+RTLSDR_API int rtlsdr_get_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned char* data, int len);
 
 #ifdef __cplusplus
 }

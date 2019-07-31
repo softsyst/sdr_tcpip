@@ -35,103 +35,262 @@
 #define KHZ(x)		((x)*1000)
 
 /*
+Reg		Bitmap	Symbol			Description
+------------------------------------------------------------------------------------
+R0		[7:0]	CHIP_ID			reference check point for read mode: 0x96
+0x00
+------------------------------------------------------------------------------------
+R1		?
+0x01
+------------------------------------------------------------------------------------
+R2		[7]						0
+0x02	[6:0]	VCO_INDICATOR	Bit 6 = 1: PLL has locked
+------------------------------------------------------------------------------------
+R3		[7:4]	RF_INDICATOR	LNA gain
+0x03							0: Lowest, 15: Highest
+		[3:0]					Mixer gain
+								0: Lowest, 15: Highest
+------------------------------------------------------------------------------------
+R4		[5:4]					vco_fine_tune
+0x04	[3:0]					fil_cal_code
+------------------------------------------------------------------------------------
+R5		[7] 	PWD_LT			Loop through ON/OFF
+0x05							0: on, 1: off
+		[6]						0
+		[5] 	PWD_LNA1		LNA 1 power control
+								0:on, 1:off
+		[4] 	LNA_GAIN_MODE	LNA gain mode switch
+								0: auto, 1: manual
+		[3:0] 	LNA_GAIN		LNA manual gain control
+								15: max gain, 0: min gain
+------------------------------------------------------------------------------------
+R6		[7] 	PWD_PDET1		Power detector 1 on/off
+0x06							0: on, 1: off
+		[6] 	PWD_PDET3		Power detector 3 on/off
+								0: off, 1: on
+		[5] 	FILT_3DB		Filter gain 3db
+								0:0db, 1:+3db
+		[4:3]					10
+		[2:0]	PW_LNA			LNA power control
+								000: max, 111: min
+------------------------------------------------------------------------------------
+R7		[7]						Mixer Sideband
+0x07							0: lower, 1: upper
+		[6] 	PWD_MIX			Mixer power
+								0:off, 1:on
+		[5] 	PW0_MIX			Mixer current control
+								0:max current, 1:normal current
+		[4] 	MIXGAIN_MODE	Mixer gain mode
+								0:manual mode, 1:auto mode
+		[3:0] 	MIX_GAIN		Mixer manual gain control
+								0000->min, 1111->max
+------------------------------------------------------------------------------------
+R8		[7] 	PWD_AMP			Mixer buffer power on/off
+0x08							0: off, 1:on
+		[6] 	PW0_AMP			Mixer buffer current setting
+								0: high current, 1: low current
+		[5:0] 	IMR_G			Image Gain Adjustment
+								0: min, 63: max
+------------------------------------------------------------------------------------
+R9		[7] 	PWD_IFFILT		IF Filter power on/off
+0x09							0: filter on, 1: off
+		[6] 	PW1_IFFILT		IF Filter current
+								0: high current, 1: low current
+		[5:0] 	IMR_P			Image Phase Adjustment
+								0: min, 63: max
+------------------------------------------------------------------------------------
+R10		[7] 	PWD_FILT		Filter power on/off
+0x0A							0: channel filter off, 1: on
+		[6:5] 	PW_FILT			Filter power control
+								00: highest power, 11: lowest power
+		[4]						1
+		[3:0] 	FILT_CODE		Filter bandwidth manual fine tune
+								0000 Widest, 1111 narrowest
+------------------------------------------------------------------------------------
+R11		[7:5] 	FILT_BW			Filter bandwidth manual course tunnel
+0x0B							000: widest
+								010 or 001: middle
+								111: narrowest
+		[4]						0
+		[3:0] 	HPF				High pass filter corner control
+								0000: highest
+								1111: lowest
+------------------------------------------------------------------------------------
+R12		[7]						1
+0x0C	[6] 	PWD_VGA			VGA power control
+								0: vga power off, 1: vga power on
+		[5]						1
+		[4] 	VGA_MODE		VGA GAIN manual / pin selector
+								1: IF vga gain controlled by vagc pin
+								0: IF vga gain controlled by vga_code[3:0]
+		[3:0] 	VGA_CODE		IF vga manual gain control
+								0000: -12.0 dB
+								1111: +40.5 dB; -3.5dB/step
+------------------------------------------------------------------------------------
+R13		[7:4]	LNA_VTHH		LNA agc power detector voltage threshold high setting
+0x0D							1111: 1.94 V
+								0000: 0.34 V, ~0.1 V/step
+		[3:0] 	LNA_VTHL		LNA agc power detector voltage threshold low setting
+								1111: 1.94 V
+								0000: 0.34 V, ~0.1 V/step
+------------------------------------------------------------------------------------
+R14 	[7:4] 	MIX_VTH_H		MIXER agc power detector voltage threshold high setting
+0x0E							1111: 1.94 V
+								0000: 0.34 V, ~0.1 V/step
+		[3:0] 	MIX_VTH_L		MIXER agc power detector voltage threshold low setting
+								1111: 1.94 V
+								0000: 0.34 V, ~0.1 V/step
+------------------------------------------------------------------------------------
+R15		[7]						filter extension widest
+								0: off, 1: on
+0x0F	[4] 	CLK_OUT_ENB		Clock out pin control
+								0: clk output on, 1: off
+		[3]						1
+		[2]						set cali clk
+								0: off, 1: on
+		[1] 	CLK_AGC_ENB		AGC clk control
+								0: internal agc clock on, 1: off
+		[0]		GPIO			0
+------------------------------------------------------------------------------------
+R16		[7:5] 	SEL_DIV			PLL to Mixer divider number control
+0x10							000: mixer in = vco out /2
+								001: mixer in = vco out / 4
+								010: mixer in = vco out / 8
+								011: mixer in = vco out
+		[4] 	REFDIV			PLL Reference frequency Divider
+								0 -> fref=xtal_freq
+								1 -> fref=xta_freql / 2 (for Xtal >24MHz)
+		[3:2]					01
+		[1:0] 	CAPX			Internal xtal cap setting
+								00->no cap
+								01->10pF
+								10->20pF
+								11->30pF
+------------------------------------------------------------------------------------
+R17		[7:6] 	PW_LDO_A		PLL analog low drop out regulator switch
+0x11							00: off
+								01: 2.1V
+								10: 2.0V
+								11: 1.9V
+		[5:3]					cp_cur
+								101: 0.2, 111: auto
+		[2:0]					011
+------------------------------------------------------------------------------------
+R18		[7:5] 					set VCO current
+0x12	[4]		PW_SDM			0
+		[3:0]					000
+------------------------------------------------------------------------------------
+R19		[7:6]					00
+		[5:0]	VER_NUM			0x31
+------------------------------------------------------------------------------------
+R20		[7:6] 	SI2C			PLL integer divider number input Si2c
+0x14							Nint=4*Ni2c+Si2c+13
+								PLL divider number Ndiv = (Nint + Nfra)*2
+		[5:0] 	NI2C			PLL integer divider number input Ni2c
+------------------------------------------------------------------------------------
+R21		[7:0] 	SDM_IN[8:1]		PLL fractional divider number input SDM[16:1]
+0x15							Nfra=SDM_IN[16]*2^-1+SDM_IN[15]*2^-2+...
+R22		[7:0] 	SDM_IN[16:9]	+SDM_IN[2]*2^-15+SDM_IN[1]*2^-16
+0x16
+------------------------------------------------------------------------------------
+R23		[7:6] 	PW_LDO_D		PLL digital low drop out regulator supply current switch
+0x17							00: 1.8V,8mA
+								01: 1.8V,4mA
+								10: 2.0V,8mA
+								11: OFF
+		[5:4]					div_buf_cur
+								10: 200u, 11: 150u
+		[3] 	OPEN_D			Open drain
+								0: High-Z, 1: Low-Z
+		[2:0]					100
+------------------------------------------------------------------------------------
+R25		[7] 	PWD_RFFILT		RF Filter power
+0x19							0: off, 1:on
+		[6:5]					RF poly filter current
+								00: min
+		[4] 	SW_AGC			Switch agc_pin
+								0:agc=agc_in
+								1:agc=agc_in2
+		[3:2]					11
+------------------------------------------------------------------------------------
+R26		[7:6] 	RFMUX			Tracking Filter switch
+0x1A							00: TF on
+								01: Bypass
+		[5:4]					AGC clk
+								00: 300ms, 01: 300ms, 10: 80ms, 11: 20ms
+		[3:2]	PLL_AUTO_CLK	PLL auto tune clock rate
+								00: 128 kHz
+								01: 32 kHz
+								10: 8 kHz
+		[1:0] RFFILT			RF FILTER band selection
+								00: highest band
+								01: med band
+								10: low band
+------------------------------------------------------------------------------------
+R27		[7:4] TF_NCH			0000 highest corner for LPNF
+0x1B							1111 lowerst corner for LPNF
+		[3:0] TF_LP				0000 highest corner for LPF
+								1111 lowerst corner for LPF
+------------------------------------------------------------------------------------
+R28		[7:4]	PDET3_GAIN		Power detector 3 (Mixer) TOP(take off point) control
+0x1C							0: Highest, 15: Lowest
+		[3]						discharge mode
+								0: on
+		[2]						1
+		[0]						0
+------------------------------------------------------------------------------------
+R29		[7:6]					11
+0x1D	[5:3]	PDET1_GAIN		Power detector 1 (LNA) TOP(take off point) control
+								0: Highest, 7: Lowest
+		[2:0] 	PDET2_GAIN		Power detector 2 TOP(take off point) control
+								0: Highest, 7: Lowest
+------------------------------------------------------------------------------------
+R30		[7]						0
+0x1E 	[6]		FILTER_EXT		Filter extension under weak signal
+								0: Disable, 1: Enable
+		[5:0]	PDET_CLK		Power detector timing control (LNA discharge current)
+	 							111111: max, 000000: min
+------------------------------------------------------------------------------------
+R31		[7]						Loop through attenuation
+0x1F							0: Enable, 1: Disable
+		[6:2]					10000
+------------------------------------------------------------------------------------
+R0...R4 read, R5...R15 read/write, R16..R31 write
+*/
+
+/*
  * Static constants
  */
 
 /* Those initial values start from REG_SHADOW_START */
 static const uint8_t r82xx_init_array[] = {
 	0x80,	//Reg 0x05
-			//Bit 7 Loop through = off
-			//Bit 5 LNA 1 power control = on
-			//Bit 4 LNA gain mode = auto
-			//Bit 3..0 LNA manual gain control = 0
 	0x12, 	//Reg 0x06
-			//Bit 7 Power detector 1 = on
-			//Bit 6 Power detector 3 = off
-			//Bit 5 Filter gain 3db = 0dB
-			//Bit 2..0 LNA power control = 2
 	0x70,	//Reg 0x07
-			//Bit 7  Img_R = image negative (Sideband: 0=lower, 1=upper)
-			//Bit 6 Mixer power = on
-			//Bit 5 Mixer current control = normal current
-			//Bit 4 Mixer gain mode = auto mode
-			//Bit 3..0 Mixer manual gain control = 0
 	0xc0, 	//Reg 0x08
-			//Bit 7 Mixer buffer power = on
-			//Bit 6 Mixer buffer current setting = low current
-			//Bit 5..0 Image Gain Adjustment = 0 (min)
 	0x40, 	//Reg 0x09
-			//Bit 7 IF Filter power = filter on
-			//Bit 6 IF Filter current = low current
-			//Bit 5..0 Image Phase Adjustment = 0 (min)
 	0xdb, 	//Reg 0x0a
-			//Bit 7 Filter power = on
-			//Bit 6..5 Filter power control = 2
-			//Bit 3..0 Filter bandwidth manual fine tune = 1011
 	0x6b,	//Reg 0x0b
-			//Bit 7..5 Filter bandwidth manual course tunnel = 3 (6 MHz)
-			//Bit 3..0 High pass filter corner control = 11
 	0xf0, 	//Reg 0x0c
-			//Bit 6 VGA power control = on
-			//Bit 4 VGA GAIN manual / pin selector = IF vga gain controlled by vagc pin
-			//Bit 3..0 IF vga manual gain control = 0
 	0x53, 	//Reg 0x0d
-			//Bit 7..4 LNA agc power detector voltage threshold high setting = 5 (0.84V)
-			//Bit 3..0 LNA agc power detector voltage threshold low setting = 3 (0.64V)
 	0x75, 	//Reg 0x0e
-			//Bit 7..4 MIXER agc power detector voltage threshold high = 7 (1.04V)
-			//Bit 3..0 MIXER agc power detector voltage threshold low = 5 (0.84V)
 	0x68,	//Reg 0x0f
-			//Bit 7 filter extension widest = off
-			//Bit 4 Clock out pin control = clk output on
-			//Bit 2 set cali clk = off
-			//Bit 1 AGC clk control = internal agc clock on
-			//Bit 0 GPIO
 	0x6c, 	//Reg 0x10
-			//Bit 7..5 PLL to Mixer divider number control = 3 (mixer in = vco out)
-			//Bit 4 PLL Reference frequency Divider = 0 (fref=xtal_freq)
-			//Bit 1..0 Internal xtal cap setting = 0 (no cap)
 	0xbb, 	//Reg 0x11
-			//Bit 7..6 PLL analog low drop out regulator switch = 2 (2.0V)
-			//Bit 5..4 cp_cur: 101 = 0.2, 111 = auto
 	0x80, 	//Reg 0x12
-			//Bit 7..5 set VCO current = 4
-			//Bit 4 PW_SDM = 0
 	VER_NUM & 0x3f,	//Reg 0x13
-			//Bit 5..0 Version ?
 	0x0f, 	//Reg 0x14
-			//Bit 7..6 PLL integer divider number input Si2c = 0
-			//Bit 5..5 PLL integer divider number input Ni2c = 15
-	0x00, 	//Reg 0x15 = PLL fractional divider number input SDM_IN[8:1]
-	0xc0, 	//Reg 0x16 = PLL fractional divider number input SDM_IN[16:9]
+	0x00, 	//Reg 0x15
+	0xc0, 	//Reg 0x16
 	0x30,	//Reg 0x17
-			//Bit 7..6 PLL digital low drop out regulator supply current switch = 0 (1.8V,8mA)
-			//Bit 5..4 div_buf_cur: 10 = 200u, 11 = 150u
-			//Bit 3 Open drain = High-Z
 	0x48, 	//Reg 0x18
 	0xec, 	//Reg 0x19
-			//Bit 7 RF Filter power = on
-			//Bit 6..5 RF poly filter current = min
-			//Bit 4 Switch agc_pin: agc=agc_in
 	0x60, 	//Reg 0x1a
-			//Bit 7..6 Tracking Filter switch = Bypass
-			//Bit 5..4 AGC clk: 00=300ms, 01=300ms, 10=80ms, 11=20ms
-			//Bit 3..2 PLL auto tune clock rate = 128 kHz
-			//Bit 1..0 RF FILTER band selection = highest band
 	0x00,	//Reg 0x1b
-			//Bit 7..4 = highest corner for LPNF
-			//Bit 7..4 = highest corner for LPF
 	0x24,	//Reg 0x1c
-			//Bit 7..4 Power detector 3 (Mixer) TOP(take off point) control = 2
-			//Bit 3 discharge mode = on
 	0xdd, 	//Reg 0x1d
-			//Bit 5..3 Power detector 1 (LNA) TOP(take off point) control = 3
-			//Bit 2..0 Power detector 2 TOP(take off point) control = 5
 	0x0e, 	//Reg 0x1e
-			//Bit 6 Filter extension under weak signal = disable
-			//Bit 5..0 Power detector timing control (LNA discharge current) = 14
 	0x40	//Reg 0x1f
-			//Bit 7 Loop through attenuation = enable
 };
 
 /* Tuner frequency ranges */
@@ -755,6 +914,7 @@ static int r82xx_set_tv_standard(struct r82xx_priv *priv,
 			return rc;
 	}
 	priv->int_freq = 3570 * 1000;
+	priv->sideband = 0;
 
 	/* Check if standard changed. If so, filter calibration is needed */
 	/* as we call this function only once in rtlsdr, force calibration */
@@ -890,7 +1050,7 @@ static const uint8_t r82xx_0xa[]= { 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x
 static const uint8_t r82xx_0xb[]= { 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xaf, 0x8f, 0x8f, 0x6b };
 static const int r82xx_if[]  =    { 1700, 1650, 1600, 1500, 1400, 1350, 1320, 1270, 1400, 1600, 2000, 3570 };
 
-int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t rate, uint32_t * applied_bw, int apply)
+int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t * applied_bw, int apply)
 {
 	int rc;
 	unsigned int i;
@@ -920,12 +1080,26 @@ int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t rate, uint32_t
    //print_registers(priv);
 }
 
+int r82xx_set_sideband(struct r82xx_priv *priv, int sideband)
+{
+	int rc;
+	priv->sideband = sideband;
+	rc = r82xx_write_reg_mask(priv, 0x07, (sideband << 7) & 0x80, 0x80);
+	if (rc < 0)
+		return rc;
+	return 0;
+}
+
 int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 {
 	int rc = -1;
-	uint32_t lo_freq = freq + priv->int_freq;
+	uint32_t lo_freq;
 	uint8_t air_cable1_in;
 
+	if(priv->sideband)
+		lo_freq = freq - priv->int_freq;
+	else
+		lo_freq = freq + priv->int_freq;
 	rc = r82xx_set_mux(priv, lo_freq);
 	if (rc < 0)
 		goto err;

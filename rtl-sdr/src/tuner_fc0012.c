@@ -146,7 +146,7 @@ int fc0012_init(void *dev)
 	int ret = 0;
 	unsigned int i;
 	uint8_t reg[] = {
-		0x00,	/* dummy reg. 0 */
+		0xa1,	/* reg. 0x00  CHIP ID*/
 		0x05,	/* reg. 0x01 */
 		0x10,	/* reg. 0x02 */
 		0x00,	/* reg. 0x03 */
@@ -165,8 +165,8 @@ int fc0012_init(void *dev)
 		0x00,	/* reg. 0x0e */
 		0x00,	/* reg. 0x0f */
 		0x00,	/* reg. 0x10: may also be 0x0d */
-		0x00,	/* reg. 0x11 */
-		0x1f,	/* reg. 0x12: Set to maximum gain */
+		0x0a,	/* reg. 0x11 */
+		0x51,	/* reg. 0x12: Set to maximum gain */
 		0x08,	/* reg. 0x13: Set to Middle Gain: 0x08,
 			   Low Gain: 0x00, High Gain: 0x10, enable IX2: 0x80 */
 		0x00,	/* reg. 0x14 */
