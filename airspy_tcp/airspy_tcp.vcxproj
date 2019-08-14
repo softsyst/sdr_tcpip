@@ -164,9 +164,8 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\rtl-sdr\include\airspy.h" />
     <ClInclude Include="..\rtl-sdr\include\airspy_commands.h" />
-    <ClInclude Include="include\airspy.h" />
-    <ClInclude Include="include\reg_field.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\rtl-sdr\src\airspy_loadFunctions.cpp" />

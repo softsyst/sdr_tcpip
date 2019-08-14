@@ -15,13 +15,10 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\reg_field.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="include\airspy.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\rtl-sdr\include\airspy_commands.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\airspy.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

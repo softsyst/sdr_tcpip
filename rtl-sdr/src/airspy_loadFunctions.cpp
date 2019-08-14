@@ -14,6 +14,7 @@ typedef	int(*pfn_airspy_init) (void);
 
 #define GETPROCADDRESS GetProcAddress
 
+pfn_airspy_lib_version airspy_lib_version;
 pfn_airspy_init		   airspy_init;
 pfn_airspy_exit		   airspy_exit;
 pfn_airspy_error_name	   airspy_error_name;
@@ -40,22 +41,18 @@ pfn_airspy_set_packing airspy_set_packing;
 
 
 	bool	load_airspyFunctions(HMODULE h) {
-		//
-		//int err = 0;
-		////	link the required procedures
-		//void * f = GetProcAddress(h, "airspy_init");
-		//if (f != 0)
-		//	airspy_init = (pfn_airspy_init)f;
-		//else
-		//	err = GetLastError();
 
-		airspy_init = (pfn_airspy_init) GetProcAddress(h, "airspy_init");
-		//airspy_init = (pfn_airspy_init)GetProcAddress(h, "airspy_init");
+		airspy_lib_version = (pfn_airspy_lib_version)GETPROCADDRESS(h, "airspy_lib_version");
+		if (airspy_lib_version == 0) {
+			fprintf(stderr, "Could not find airspy_lib_version\n");
+			return false;
+		}
+
+		airspy_init = (pfn_airspy_init)GETPROCADDRESS(h, "airspy_init");
 		if (airspy_init == 0) {
 			fprintf(stderr, "Could not find airspy_init\n");
 			return false;
 		}
-		airspy_init = airspy_init;
 
 		airspy_exit = (pfn_airspy_exit)
 			GETPROCADDRESS(h, "airspy_exit");

@@ -68,6 +68,7 @@ extern "C"
 {
 	bool	load_airspyFunctions(HINSTANCE Handle);
 
+	extern pfn_airspy_lib_version airspy_lib_version;
 	extern pfn_airspy_init		   airspy_init;
 	extern pfn_airspy_exit		   airspy_exit;
 	extern pfn_airspy_error_name	   airspy_error_name;
@@ -157,7 +158,7 @@ extern "C"
 		pthread_cond_signal(&cond);
 	}
 
-	//-cs-
+	// still dummy
 	int rtlsdr_get_tuner_i2c_register(void *dev, unsigned char* data, int len)
 	{
 		int r = 0;
@@ -318,7 +319,7 @@ extern "C"
 					}
 					else if (do_exit)
 					{
-						printf("worker socket bye due to exit request");
+						printf("worker socket bye due to exit request\n");
 					}
 					sighandler(0);
 					pthread_exit(NULL);
@@ -351,21 +352,21 @@ extern "C"
 		r = airspy_set_lna_agc(dev, value);
 		if (r != AIRSPY_SUCCESS)
 		{
-			printf("Set LNA AGC %d failed with %d", value, r);
+			printf("Set LNA AGC %d failed with %d\n", value, r);
 			return r;
 		}
 		else
-			printf("Set LNA AGC %d set", value);
+			printf("Set LNA AGC %d succeeded\n", value);
 
 
 		r = airspy_set_mixer_agc(dev, value);
 		if (r != AIRSPY_SUCCESS)
 		{
-			printf("Set Mixer AGC %d failed with %d", value, r);
+			printf("Set Mixer AGC %d failed with %d\n", value, r);
 			return r;
 		}
 		else
-			printf("Set Mixer AGC %d set", value);
+			printf("Set Mixer AGC %d succeeded\n", value);
 		return r;
 	}
 
@@ -380,9 +381,9 @@ extern "C"
 		{
 			r = airspy_set_samplerate(dev, fs);
 			if (r == AIRSPY_SUCCESS)
-				printf("Set sample rate %d succeeded", fs);
+				printf("Set sample rate %d succeeded\n", fs);
 			else
-				printf("Set sample rate %d failed with error %d", fs, r);
+				printf("Set sample rate %d failed with error %d\n", fs, r);
 			return r;
 		}
 
@@ -434,7 +435,7 @@ extern "C"
 					pthread_exit(NULL);
 				}
 			}
-			printf("Command %d arrived with parameter %d\n", cmd.cmd, ntohl(cmd.param));
+			//printf("Command %d arrived with parameter %d\n", cmd.cmd, ntohl(cmd.param));
 
 			switch (cmd.cmd) {
 			case SET_FREQUENCY://0x01
@@ -525,29 +526,32 @@ extern "C"
 #else
 		struct sigaction sigact, sigign;
 #endif
-		printf("airspy_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-			"Version 0.1 for QIRX, 12.08.2019\n\n");
+		printf("airspy_tcp, an I/Q spectrum server Airspy receivers\n"
+			"Version 0.1 for QIRX, 14.08.2019\n\n");
 
-		for (int k = 0; k < argc; k++)
-		{
-			printf(argv[k]); 
-			printf("\n"); 
-		}
-
+		//for (int k = 0; k < argc; k++)
+		//{
+		//	printf(argv[k]); 
+		//	printf("\n"); 
+		//}
 		int lastError = 0;
 		HINSTANCE Handle = LoadLibrary("libairspy.dll");
-		//HINSTANCE Handle = LoadLibrary("D:\\fun\\signalProc\\QIRX\\rtl-sdr-airspy\\rtl-sdr\\x64\\Debug\\libairspy.dll");
 		if (Handle == 0)
 		{
-			printf("Error %d loading libairspy.dll", GetLastError());
+			printf("Error %d loading libairspy.dll\n", GetLastError());
 			return -1;
 		}
 
 		if (!load_airspyFunctions(Handle))
 		{
-			printf("Cannot load functions from libairspy.dll library.");
+			printf("Cannot load functions from libairspy.dll library.\n");
 			return -1;
 		}
+
+		airspy_lib_version_t libversion;
+		airspy_lib_version(&libversion);
+
+		printf("Airspy library version %d.%d.%d\n\n", libversion.major_version, libversion.minor_version, libversion.revision);
 
 		while ((opt = getopt(argc, argv, "a:p:f:g:s:b:n:d:P:TD:W:v")) != -1) {
 			switch (opt) {
@@ -735,9 +739,9 @@ extern "C"
 		pthread_cond_init(&cond, NULL);
 		pthread_cond_init(&exit_cond, NULL);
 
-		// currently not used.
-		ctrl_thread_data_t ctrldata = { dev, port + 1, 500000, addr, &do_exit_thrd_ctrl };
-		pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
+		//// currently not used.
+		//ctrl_thread_data_t ctrldata = { dev, port + 1, 500000, addr, &do_exit_thrd_ctrl };
+		//pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
 
 		memset(&local, 0, sizeof(local));
 		local.sin_family = AF_INET;

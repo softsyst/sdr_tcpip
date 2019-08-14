@@ -122,6 +122,7 @@ typedef struct {
 
 typedef int(*airspy_sample_block_cb_fn)(airspy_transfer* transfer);
 
+typedef void(*pfn_airspy_lib_version)(airspy_lib_version_t*);
 
 typedef	int(*pfn_airspy_init) (void);
 typedef int(*pfn_airspy_exit) (void);
