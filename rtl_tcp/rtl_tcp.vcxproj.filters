@@ -21,10 +21,10 @@
     <ClCompile Include="..\rtl-sdr\src\getopt\getopt.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\rtl-sdr\src\convenience\convenience.c">
+    <ClCompile Include="..\rtl-sdr\src\controlThread.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\rtl-sdr\src\controlThread.c">
+    <ClCompile Include="..\rtl-sdr\src\convenience\convenience.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

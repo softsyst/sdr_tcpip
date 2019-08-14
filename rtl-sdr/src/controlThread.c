@@ -45,7 +45,7 @@
 
 #include "rtl-sdr.h"
 #include "rtl_tcp.h"
-#include "convenience/convenience.h"
+//#include "convenience/convenience.h"
 
 #include "tuner_r82xx.h"
 

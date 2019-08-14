@@ -24,6 +24,7 @@
 extern "C" {
 #endif
 
+
 /*!
  * This enum defines the possible commands in rtl_tcp
  * commands 0x01..0x0E are compatible to osmocom's rtlsdr
@@ -68,7 +69,7 @@ enum RTL_TCP_COMMANDS {
 };
 typedef struct
 {
-	rtlsdr_dev_t *dev;
+	struct airspy_device *dev;
 	SOCKET port;
 	int wait;
 	char *addr;
@@ -76,6 +77,10 @@ typedef struct
 }
 ctrl_thread_data_t;
 void *ctrl_thread_fn(void *arg);
+
+#define TUNER_AIRSPY 11
+#define AIRSPY_LINEARITY_GAIN_STEPS 22
+#define AIRSPY_VGA_GAIN_STEPS 16
 
 #ifdef __cplusplus
 }

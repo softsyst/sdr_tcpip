@@ -47,7 +47,7 @@ BEGIN
 			VALUE "InternalName", "libusb\0"
 			VALUE "LegalCopyright", "See individual source files, GNU LGPL v2.1 or later.\0"
 			VALUE "LegalTrademarks", "http://www.gnu.org/licenses/lgpl-2.1.html\0"
-			VALUE "OriginalFilename", "libusb-1.0.21.dll\0"
+			VALUE "OriginalFilename", "libusb-1.0.dll\0"
 			VALUE "PrivateBuild", "\0"
 			VALUE "ProductName", "libusb-1.0.21\0"
 			VALUE "ProductVersion", LIBUSB_VERSIONSTRING

@@ -19,14 +19,15 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{4471690A-F99C-4AB8-8347-D51E5607668F}</ProjectGuid>
+    <ProjectGuid>{BAEEEA44-A894-4AF5-A7C4-BF5D214C6618}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>rtl_tcp</RootNamespace>
+    <RootNamespace>rtlsdr</RootNamespace>
+    <ProjectName>airspy_tcp</ProjectName>
     <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
@@ -38,7 +39,7 @@
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -85,14 +86,14 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\posix\include;..\rtl-sdr\include</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;__SDR_EXPORT;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.\posix\include;..\Lib\libusb-1.0.21\libusb;.\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\posix\lib\x64;..\Lib;..\x64\Debug</AdditionalLibraryDirectories>
-      <AdditionalDependencies>pthreadVC2.lib;%(AdditionalDependencies);rtlsdr.lib</AdditionalDependencies>
+      <AdditionalDependencies>libusb-1.0.21.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\Lib</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -101,15 +102,21 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\posix\include;..\rtl-sdr\include</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;__DEBUG;_CONSOLE;_LIB;rtlsdr_EXPORTS</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\posix\include;..\Lib\libusb-1.0.21\libusb;..\rtl-sdr\include;.\src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>..\posix\lib\$(Platform);$(SolutionDir)\Lib\</AdditionalLibraryDirectories>
-      <AdditionalDependencies>pthreadVC2.lib;%(AdditionalDependencies);rtlsdr.lib;libusb-1.0.lib</AdditionalDependencies>
+      <AdditionalDependencies>libusb-1.0.21.lib;pthreadVC2.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\posix\lib\x64;$(SolutionDir)Lib</AdditionalLibraryDirectories>
+      <ImportLibrary>
+      </ImportLibrary>
     </Link>
+    <PostBuildEvent>
+      <Command>
+      </Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -119,59 +126,53 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\posix\include;..\rtl-sdr\include</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;__SDR_EXPORT;NDEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.\posix\include;..\Lib\libusb-1.0.21\libusb;.\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>..\posix\lib\x86;..\Release;..\Lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>pthreadVC2.lib;%(AdditionalDependencies);rtlsdr.lib;convenience_static.lib</AdditionalDependencies>
+      <AdditionalDependencies>libusb-1.0.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\Lib</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
-      <PrecompiledHeader>
-      </PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\posix\include;..\rtl-sdr\include</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;_LIB;rtlsdr_EXPORTS</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\posix\include;..\Lib\libusb-1.0.21\libusb;..\rtl-sdr\include;.\src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>..\posix\lib\$(Platform);$(SolutionDir)\Lib\</AdditionalLibraryDirectories>
-      <AdditionalDependencies>pthreadVC2.lib;%(AdditionalDependencies);rtlsdr.lib;libusb-1.0.lib</AdditionalDependencies>
+      <AdditionalDependencies>libusb-1.0.21.lib;pthreadVC2.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\posix\lib\x64;$(SolutionDir)Lib</AdditionalLibraryDirectories>
+      <ImportLibrary>
+      </ImportLibrary>
     </Link>
     <PostBuildEvent>
-      <Command>del $(SolutionDir)$(Platform)\$(Configuration)\*.iobj
-del $(SolutionDir)$(Platform)\$(Configuration)\*.ipdb
-del $(SolutionDir)$(Platform)\$(Configuration)\*.pdb</Command>
+      <Command>
+      </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\rtl-sdr\src\controlThread.c" />
-    <ClCompile Include="..\rtl-sdr\src\convenience\convenience.c" />
-    <ClCompile Include="..\rtl-sdr\src\getopt\getopt.c" />
-    <ClCompile Include="..\rtl-sdr\src\rtl_tcp.c" />
+    <ClInclude Include="..\rtl-sdr\include\airspy_commands.h" />
+    <ClInclude Include="include\airspy.h" />
+    <ClInclude Include="include\reg_field.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\rtl-sdr\include\libusb.h" />
-    <ClInclude Include="..\rtl-sdr\include\reg_field.h" />
-    <ClInclude Include="..\rtl-sdr\include\rtl-sdr.h" />
-    <ClInclude Include="..\rtl-sdr\include\rtlsdr_i2c.h" />
-    <ClInclude Include="..\rtl-sdr\include\rtlsdr_rpc_msg.h" />
-    <ClInclude Include="..\rtl-sdr\include\rtl_tcp.h" />
-    <ClInclude Include="..\rtl-sdr\include\tuner_r82xx.h" />
-    <ClInclude Include="..\rtl-sdr\src\convenience\convenience.h" />
-    <ClInclude Include="..\rtl-sdr\src\getopt\getopt.h" />
+    <ClCompile Include="..\rtl-sdr\src\airspy_loadFunctions.cpp" />
+    <ClCompile Include="..\rtl-sdr\src\airspy_tcp.cpp" />
+    <ClCompile Include="..\rtl-sdr\src\controlThread.c" />
+    <ClCompile Include="..\rtl-sdr\src\getopt\getopt.c" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
