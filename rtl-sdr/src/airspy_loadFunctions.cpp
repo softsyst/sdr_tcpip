@@ -38,6 +38,8 @@ pfn_airspy_board_id_read   airspy_board_id_read;
 pfn_airspy_board_id_name   airspy_board_id_name;
 pfn_airspy_board_partid_serialno_read airspy_board_partid_serialno_read;
 pfn_airspy_set_packing airspy_set_packing;
+pfn_airspy_r820t_write airspy_r820t_write;
+pfn_airspy_r820t_read airspy_r820t_read;
 
 
 	bool	load_airspyFunctions(HMODULE h) {
@@ -207,8 +209,23 @@ pfn_airspy_set_packing airspy_set_packing;
 		airspy_set_packing =
 			(pfn_airspy_set_packing)
 			GETPROCADDRESS(h, "airspy_set_packing");
-		if (airspy_board_partid_serialno_read == 0) {
+		if (airspy_set_packing == 0) {
 			fprintf(stderr, "Could not find airspy_set_packing\n");
+			return false;
+		}
+
+		airspy_r820t_read =
+			(pfn_airspy_r820t_read)
+			GETPROCADDRESS(h, "airspy_r820t_read");
+		if (airspy_r820t_read == 0) {
+			fprintf(stderr, "Could not find airspy_r820t_read\n");
+			return false;
+		}
+		airspy_r820t_write =
+			(pfn_airspy_r820t_write)
+			GETPROCADDRESS(h, "airspy_r820t_write");
+		if (airspy_r820t_write == 0) {
+			fprintf(stderr, "Could not find airspy_r820t_write\n");
 			return false;
 		}
 

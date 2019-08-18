@@ -166,11 +166,12 @@
   <ItemGroup>
     <ClInclude Include="..\rtl-sdr\include\airspy.h" />
     <ClInclude Include="..\rtl-sdr\include\airspy_commands.h" />
+    <ClInclude Include="..\rtl-sdr\include\airspy_tcp.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\rtl-sdr\src\airspy_loadFunctions.cpp" />
     <ClCompile Include="..\rtl-sdr\src\airspy_tcp.cpp" />
-    <ClCompile Include="..\rtl-sdr\src\controlThread.c" />
+    <ClCompile Include="..\rtl-sdr\src\controlThreadAirspy.c" />
     <ClCompile Include="..\rtl-sdr\src\getopt\getopt.c" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

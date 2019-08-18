@@ -21,6 +21,9 @@
     <ClInclude Include="..\rtl-sdr\include\airspy.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\rtl-sdr\include\airspy_tcp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\rtl-sdr\src\airspy_tcp.cpp">
@@ -32,7 +35,7 @@
     <ClCompile Include="..\rtl-sdr\src\airspy_loadFunctions.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\rtl-sdr\src\controlThread.c">
+    <ClCompile Include="..\rtl-sdr\src\controlThreadAirspy.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -69,7 +69,7 @@ enum RTL_TCP_COMMANDS {
 };
 typedef struct
 {
-	struct rtlsdr_dev_t *dev;
+	struct airspy_device *dev;
 	SOCKET port;
 	int wait;
 	char *addr;
@@ -77,6 +77,8 @@ typedef struct
 }
 ctrl_thread_data_t;
 void *ctrl_thread_fn(void *arg);
+
+int airspy_get_tuner_register(struct airspy_device *dev, unsigned char* data, int len);
 
 #define TUNER_AIRSPY 11
 #define AIRSPY_LINEARITY_GAIN_STEPS 22

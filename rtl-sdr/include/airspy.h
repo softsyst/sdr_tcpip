@@ -169,6 +169,8 @@ typedef int(*pfn_airspy_board_partid_serialno_read)(struct airspy_device* device
 typedef int(*pfn_airspy_set_linearity_gain) (struct airspy_device* device, uint8_t value);
 typedef int(*pfn_airspy_set_sensitivity_gain)(struct airspy_device* device, uint8_t value);
 typedef int(*pfn_airspy_set_packing) (struct airspy_device* device, uint8_t value);
+typedef int(*pfn_airspy_r820t_write) (struct airspy_device* device, uint8_t register_number, uint8_t value);
+typedef int(*pfn_airspy_r820t_read) (struct airspy_device* device, uint8_t register_number, uint8_t* value);
 
 
 #ifdef __cplusplus

@@ -49,7 +49,7 @@
 //#include "convenience/convenience.h"
 
 #include <airspy.h>
-#include <rtl_tcp.h>
+#include <airspy_tcp.h>
 
 #ifdef _WIN32
 #pragma comment(lib, "ws2_32.lib")
@@ -92,11 +92,18 @@ extern "C"
 	extern pfn_airspy_board_id_name   airspy_board_id_name;
 	extern pfn_airspy_board_partid_serialno_read airspy_board_partid_serialno_read;
 	extern pfn_airspy_set_packing airspy_set_packing;
-
+	extern pfn_airspy_r820t_write airspy_r820t_write;
+	extern pfn_airspy_r820t_read airspy_r820t_read;
 
 
 	static SOCKET s;
 
+	// -cs- Concurrent lock for the ...
+#ifdef __MINGW32__
+	static pthread_mutex_t cs_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
+#else
+	static pthread_mutex_t cs_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+#endif
 	static pthread_t tcp_worker_thread;
 	static pthread_t command_thread;
 	static pthread_cond_t exit_cond;
@@ -158,21 +165,89 @@ extern "C"
 		pthread_cond_signal(&cond);
 	}
 
-	// still dummy
-	int rtlsdr_get_tuner_i2c_register(void *dev, unsigned char* data, int len)
+	/**
+	uint16_t rtlsdr_demod_read_reg(airspy_device *dev, uint8_t page, uint16_t addr, uint8_t len)
+	{
+		int r;
+		unsigned char data[2];
+
+		uint16_t index = page;
+		uint16_t reg;
+		addr = (addr << 8) | 0x20;
+
+		r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
+
+		if (r < 0)
+			fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+
+		reg = (data[1] << 8) | data[0];
+
+		return reg;
+	}
+
+	int rtlsdr_demod_write_reg(airspy_device *dev, uint8_t page, uint16_t addr, uint16_t val, uint8_t len)
+	{
+		int r;
+		unsigned char data[2];
+		uint16_t index = 0x10 | page;
+		addr = (addr << 8) | 0x20;
+
+		if (len == 1)
+			data[0] = val & 0xff;
+		else
+			data[0] = val >> 8;
+
+		data[1] = val & 0xff;
+
+		r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
+
+		if (r < 0)
+			fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+
+		rtlsdr_demod_read_reg(dev, 0x0a, 0x01, 1);
+
+		return (r == len) ? 0 : -1;
+	}
+
+	void rtlsdr_set_i2c_repeater(airspy_device *dev, int on)
+	{
+		rtlsdr_demod_write_reg(dev, 1, 0x01, on ? 0x18 : 0x10, 1);
+	}
+
+*/
+
+
+	static int started = 0;
+
+	int airspy_get_tuner_register(airspy_device *dev, uint8_t* data, int len)
 	{
 		int r = 0;
 
-		//if (!dev || !dev->tuner)
-		//	return -1;
+		if (!dev )
+			return -1;
 
-		//if (dev->tuner->get_i2c_register) {
-		//	pthread_mutex_lock(&cs_mutex);
-		//	rtlsdr_set_i2c_repeater(dev, 1);
-		//	r = dev->tuner->get_i2c_register((void *)dev, data, len);
-		//	rtlsdr_set_i2c_repeater(dev, 0);
-		//	pthread_mutex_unlock(&cs_mutex);
-		//}
+		for (int i=0; i < len; i++)
+		{
+			if (started && (i >=20 ))// && i <=27 ))
+			{
+				//printf("Register %d skipped\n", i);
+				//usleep(1000000);
+				continue;
+			}
+			//pthread_mutex_lock(&cs_mutex);
+			//rtlsdr_set_i2c_repeater(dev, 1);
+			r = airspy_r820t_read(dev, i, &data[i]);
+			//usleep(1000000);
+			if (r != AIRSPY_SUCCESS)
+			{
+				printf("Airspy read r820t failed at register %d with error%d\n", i, r);
+				return r;
+			}
+			//printf("Register %d \n", i);
+			//rtlsdr_set_i2c_repeater(dev, 0);
+			//pthread_mutex_unlock(&cs_mutex);
+		}
+		started = 1;
 		return r;
 	}
 	//-cs end
@@ -416,6 +491,7 @@ extern "C"
 		struct command cmd = { 0, 0 };
 		struct timeval tv = { 1, 0 };
 		int r = 0;
+		unsigned int tmp;
 
 		while (1) {
 			left = sizeof(cmd);
@@ -487,6 +563,20 @@ extern "C"
 			//	if (verbose) printf("set bias tee %d\n", ntohl(cmd.param));
 			//	airspy_set_rf_bias(dev, (int)ntohl(cmd.param));
 			//	break;
+			case SET_I2C_TUNER_REGISTER://0x43
+				tmp = ntohl(cmd.param);
+				printf("set i2c register x%03X to x%03X with mask x%02X\n", (tmp >> 20) & 0xfff, tmp & 0xfff, (tmp >> 12) & 0xff);
+				airspy_r820t_write(dev, (tmp >> 20) & 0xfff, tmp & 0xfff);
+				//airspy_r820t_write(dev, (tmp >> 20) & 0xfff, (tmp >> 12) & 0xff, tmp & 0xfff);
+				break;
+			case SET_SIDEBAND://0x46
+				//tmp = ntohl(cmd.param) & 1;
+				//if (tmp)
+				//	printf("set to upper sideband\n");
+				//else
+				//	printf("set to lower sideband\n");
+				//rtlsdr_set_tuner_sideband(dev, tmp);
+				break;
 			default:
 				break;
 			}
@@ -739,9 +829,9 @@ extern "C"
 		pthread_cond_init(&cond, NULL);
 		pthread_cond_init(&exit_cond, NULL);
 
-		//// currently not used.
-		//ctrl_thread_data_t ctrldata = { dev, port + 1, 500000, addr, &do_exit_thrd_ctrl };
-		//pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
+		// currently not used.
+		ctrl_thread_data_t ctrldata = { dev, port + 1, 500000, addr, &do_exit_thrd_ctrl };
+		pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
 
 		memset(&local, 0, sizeof(local));
 		local.sin_family = AF_INET;
