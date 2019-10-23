@@ -25,6 +25,9 @@
 #include <string.h>
 
 #include "libusbi.h"
+ //-cs- 
+#include "pthread.h"
+
 
 /**
  * @defgroup libusb_syncio Synchronous device I/O
@@ -91,6 +94,28 @@ static void sync_transfer_wait_for_completion(struct libusb_transfer *transfer)
  * the operating system and/or hardware can support
  * \returns another LIBUSB_ERROR code on other failures
  */
+// //-cs- Does not work as expected
+//pthread_mutex_t airspy_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+//
+//int API_EXPORTED libusb_control_transfer(libusb_device_handle *dev_handle,
+//	uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex,
+//	unsigned char *data, uint16_t wLength, unsigned int timeout)
+//{
+//	pthread_mutex_lock(&airspy_mutex);
+//
+//	int result = control_transfer(dev_handle,
+//		bmRequestType, bRequest, wValue, wIndex,
+//		data, wLength, timeout);
+//
+//	pthread_mutex_unlock(&airspy_mutex);
+//
+//	return result;
+//}
+
+
+
+
+
 int API_EXPORTED libusb_control_transfer(libusb_device_handle *dev_handle,
 	uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex,
 	unsigned char *data, uint16_t wLength, unsigned int timeout)
@@ -107,7 +132,7 @@ int API_EXPORTED libusb_control_transfer(libusb_device_handle *dev_handle,
 	if (!transfer)
 		return LIBUSB_ERROR_NO_MEM;
 
-	buffer = (unsigned char*) malloc(LIBUSB_CONTROL_SETUP_SIZE + wLength);
+	buffer = (unsigned char*)malloc(LIBUSB_CONTROL_SETUP_SIZE + wLength);
 	if (!buffer) {
 		libusb_free_transfer(transfer);
 		return LIBUSB_ERROR_NO_MEM;

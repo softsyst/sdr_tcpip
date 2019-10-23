@@ -46,6 +46,7 @@
 #define usleep(x) Sleep(x/1000)
 #endif
 #include <pthread.h>
+#include <libusb.h>
 //#include "convenience/convenience.h"
 
 #include <airspy.h>
@@ -215,6 +216,62 @@ extern "C"
 	}
 
 */
+#define CTRL_IN			(LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_IN)
+#define CTRL_OUT		(LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_OUT)
+#define CTRL_TIMEOUT	300
+
+	uint16_t airspy_demod_read_reg(void *dev, uint8_t page, uint16_t addr, uint8_t len)
+	{
+		int r;
+		unsigned char data[2];
+
+		uint16_t index = page;
+		uint16_t reg;
+		addr = (addr << 8) | 0x20;
+
+		_int64 p = *((_int64*)dev + 1);
+		libusb_device_handle* devh = (libusb_device_handle*)(p);
+		r = libusb_control_transfer(devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
+
+		if (r < 0)
+			fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+
+		reg = (data[1] << 8) | data[0];
+
+		return reg;
+	}
+
+	int airspy_demod_write_reg(void *dev, uint8_t page, uint16_t addr, uint16_t val, uint8_t len)
+	{
+		int r;
+		unsigned char data[2];
+		uint16_t index = 0x10 | page;
+		addr = (addr << 8) | 0x20;
+
+		if (len == 1)
+			data[0] = val & 0xff;
+		else
+			data[0] = val >> 8;
+
+		data[1] = val & 0xff;
+
+		_int64 p = *((_int64*)dev +1);
+
+		libusb_device_handle* devh = (libusb_device_handle*)(p);
+		r = libusb_control_transfer(devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT );
+
+		if (r < 0)
+			fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+
+		airspy_demod_read_reg(dev, 0x0a, 0x01, 1);
+
+		return (r == len) ? 0 : -1;
+	}
+
+	void airspy_set_i2c_repeater(airspy_device *dev, int on)
+	{
+		airspy_demod_write_reg(dev, 1, 0x01, on ? 0x18 : 0x10, 1);
+	}
 
 
 	static int started = 0;
@@ -234,21 +291,23 @@ extern "C"
 				//usleep(1000000);
 				continue;
 			}
-			//pthread_mutex_lock(&cs_mutex);
-			//rtlsdr_set_i2c_repeater(dev, 1);
-			r = airspy_r820t_read(dev, i, &data[i]);
+			//airspy_set_i2c_repeater(dev, 1);
+			//r = airspy_r820t_read(dev, i, &data[i]);
+
+			_int64 p = *((_int64*)dev + 1);
+			libusb_device_handle* devh = (libusb_device_handle*)(p);
+			r = libusb_control_transfer(devh, 0xc0, 5, 0, (unsigned short)i, data+ (uint8_t)i,1,0);
+
 			//usleep(1000000);
-			if (r != AIRSPY_SUCCESS)
+			if (r != AIRSPY_SUCCESS+1)
 			{
 				printf("Airspy read r820t failed at register %d with error%d\n", i, r);
 				return r;
 			}
 			//printf("Register %d \n", i);
-			//rtlsdr_set_i2c_repeater(dev, 0);
-			//pthread_mutex_unlock(&cs_mutex);
 		}
 		started = 1;
-		return r;
+		return 0;
 	}
 	//-cs end
 
@@ -287,7 +346,10 @@ extern "C"
 
 				for (i = 0; i < len; i++)
 				{
-					buf[i] = (uint8_t)(pIn[i] / 64 + 127);	//I-data, Q-data alternating
+					buf[i] = (uint8_t)((pIn[i]>> 6)+127);	//I-data, Q-data alternating
+
+					//float f = (float)buf[i];
+					//float g = f - 127.5;
 				}
 			}
 			else if (BitWidth == 0) // 4-Bit 
@@ -463,13 +525,21 @@ extern "C"
 		}
 
 		for (i = 0; i < fscount; i++)
-			if (supported_samplerates[i] == fs) break;
-		if (i >= fscount) {
-			printf("sample rate %d not supported\n", fs);
-			return AIRSPY_ERROR_INVALID_PARAM;
+		{
+
+			if (fs == 2048000u && supported_samplerates[i] == 3000000u || supported_samplerates[i] == fs) 
+				break;
+			if (i >= fscount) {
+				printf("sample rate %d not supported\n", fs);
+				return AIRSPY_ERROR_INVALID_PARAM;
+			}
 		}
 
 		r = airspy_set_samplerate(dev, i);
+		if (r == AIRSPY_SUCCESS)
+			printf("Set sample rate %d succeeded\n", supported_samplerates[i]);
+		else
+			printf("Set sample rate %d failed with error %d\n", fs, r);
 		return r;
 	}
 
@@ -617,7 +687,7 @@ extern "C"
 		struct sigaction sigact, sigign;
 #endif
 		printf("airspy_tcp, an I/Q spectrum server Airspy receivers\n"
-			"Version 0.1 for QIRX, 14.08.2019\n\n");
+			"Version 0.11 for QIRX, 13.10.2019\n\n");
 
 		//for (int k = 0; k < argc; k++)
 		//{
