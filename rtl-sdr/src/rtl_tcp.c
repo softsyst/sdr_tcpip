@@ -447,7 +447,7 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.83 for QIRX, 31.07.2019\n\n");
+		   "Version 0.85 for QIRX, 08.11.2019\n\n");
 
 	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:p:s:uI:vI:w:D:P:TI")) != -1) {
 		switch (opt) {

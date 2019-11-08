@@ -513,6 +513,11 @@ extern "C"
 	{
 		int r, i;
 
+		//test
+		if (fs == 2048000)
+			fs = 4096000;
+			//fs = 3000000;
+
 		// undocumented case
 		if (fs == 4096000)
 		{
@@ -526,7 +531,6 @@ extern "C"
 
 		for (i = 0; i < fscount; i++)
 		{
-
 			if (fs == 2048000u && supported_samplerates[i] == 3000000u || supported_samplerates[i] == fs) 
 				break;
 			if (i >= fscount) {
@@ -630,9 +634,9 @@ extern "C"
 				airspy_set_vga_gain(dev, ntohl(cmd.param));
 				break;
 			case SET_BIAS_TEE:
-			//	if (verbose) printf("set bias tee %d\n", ntohl(cmd.param));
-			//	airspy_set_rf_bias(dev, (int)ntohl(cmd.param));
-			//	break;
+				if (verbose) printf("set bias tee %d\n", ntohl(cmd.param));
+				airspy_set_rf_bias(dev, (int)ntohl(cmd.param));
+				break;
 			case SET_I2C_TUNER_REGISTER://0x43
 				tmp = ntohl(cmd.param);
 				printf("set i2c register x%03X to x%03X with mask x%02X\n", (tmp >> 20) & 0xfff, tmp & 0xfff, (tmp >> 12) & 0xff);
@@ -687,7 +691,7 @@ extern "C"
 		struct sigaction sigact, sigign;
 #endif
 		printf("airspy_tcp, an I/Q spectrum server Airspy receivers\n"
-			"Version 0.11 for QIRX, 13.10.2019\n\n");
+			"Version 0.12 for QIRX, 08.11.2019\n\n");
 
 		//for (int k = 0; k < argc; k++)
 		//{

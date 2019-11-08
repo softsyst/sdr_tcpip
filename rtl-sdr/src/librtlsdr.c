@@ -1473,8 +1473,9 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 	/* check if the rate is supported by the resampler */
 	if ((samp_rate <= 225000) || (samp_rate > 3200000) ||
 		 ((samp_rate > 300000) && (samp_rate <= 900000))) {
-		fprintf(stderr, "Invalid sample rate: %u Hz\n", samp_rate);
-		return -EINVAL;
+		fprintf(stderr, "Invalid sample rate: %u Hz. It will be set to 2048000sps\n", samp_rate);
+		/*return -EINVAL;*/
+		samp_rate = 2048000;
 	}
 
 	rsamp_ratio = (dev->rtl_xtal * TWO_POW(22)) / samp_rate;
