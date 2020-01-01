@@ -393,16 +393,6 @@ static int is_fosc_valid(uint32_t fosc)
 	return 1;
 }
 
-static int is_z_valid(uint32_t z)
-{
-	if (z > 255) {
-		fprintf(stderr, "[E4K] Z %u invalid\n", z);
-		return 0;
-	}
-
-	return 1;
-}
-
 /*! \brief Determine if 3-phase mixing shall be used or not */
 static int use_3ph_mixing(uint32_t flo)
 {

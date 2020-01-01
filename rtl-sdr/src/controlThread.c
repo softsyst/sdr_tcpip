@@ -35,7 +35,6 @@
 #else
 #include <winsock2.h>
 #include "getopt/getopt.h"
-#define usleep(x) Sleep(x/1000)
 #endif
 
 #ifdef NEED_PTHREADS_WORKARROUND
@@ -45,7 +44,8 @@
 
 #include "rtl-sdr.h"
 #include "rtl_tcp.h"
-//#include "convenience/convenience.h"
+#include "controlThread.h"
+#include "convenience/convenience.h"
 
 #include "tuner_r82xx.h"
 
@@ -61,29 +61,27 @@ typedef int socklen_t;
 #define SOCKET_ERROR -1
 #endif
 
-#define NUM_I2C_REGISTERS  32
-#define TX_BUF_LEN (NUM_I2C_REGISTERS+3) //2 len, 1 command
-
-const int REPORT_I2C_REGS = 0x48;   /* perodically report I2C registers */
+#define MAX_I2C_REGISTERS  32
+#define TX_BUF_LEN (5+MAX_I2C_REGISTERS) //1 command, 2 strength, 2 len
 
 
 ctrl_thread_data_t ctrl_thread_data;
 
 void *ctrl_thread_fn(void *arg)
 {
-
-	unsigned char reg_values [NUM_I2C_REGISTERS];
-	unsigned char txbuf [NUM_I2C_REGISTERS+3]; //1 command, 2 length
+	unsigned char reg_values [MAX_I2C_REGISTERS];
+	unsigned char txbuf [TX_BUF_LEN];
 	int r = 1;
 	struct timeval tv = { 1,0 };
 	struct linger ling = { 1,0 };
 	SOCKET listensocket;
 	SOCKET controlSocket;
+	int haveControlSocket = 0;
 	struct sockaddr_in local, remote;
 	socklen_t rlen;
 
 	int error = 0;
-	int ret = 0, len;
+	int len, result, strength;
 	fd_set connfds;
 	fd_set writefds;
 	int bytesleft, bytessent, index;
@@ -93,12 +91,13 @@ void *ctrl_thread_fn(void *arg)
 	rtlsdr_dev_t *dev = data->dev;
 	int port = data->port;
 	int wait = data->wait;
+	int report_i2c = data->report_i2c;
 	char *addr = data->addr;
 	int* do_exit = data->pDoExit;
 	u_long blockmode = 1;
+	int retval;
 
-	memset(reg_values, 0, NUM_I2C_REGISTERS);
-
+	memset(reg_values, 0, MAX_I2C_REGISTERS);
 
 	memset(&local, 0, sizeof(local));
 	local.sin_family = AF_INET;
@@ -109,9 +108,9 @@ void *ctrl_thread_fn(void *arg)
 
 	setsockopt(listensocket, SOL_SOCKET, SO_REUSEADDR, (char *)&r, sizeof(int));
 	setsockopt(listensocket, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
-	int retval = bind(listensocket, (struct sockaddr *)&local, sizeof(local));
+	retval = bind(listensocket, (struct sockaddr *)&local, sizeof(local));
 	if (retval == SOCKET_ERROR)
-		error = WSAGetLastError();
+		error = 1;
 #ifdef _WIN32
 	ioctlsocket(listensocket, FIONBIO, &blockmode);
 #else
@@ -123,11 +122,7 @@ void *ctrl_thread_fn(void *arg)
 		printf("listening on Control port %d...\n", port);
 		retval = listen(listensocket, 1);
 		if (retval == SOCKET_ERROR)
-#ifdef _WIN32
-			error = WSAGetLastError();
-#else
-			;
-#endif
+			error = 1;
 		while (1) {
 			FD_ZERO(&connfds);
 			FD_SET(listensocket, &connfds);
@@ -140,6 +135,7 @@ void *ctrl_thread_fn(void *arg)
 			else if (r) {
 				rlen = sizeof(remote);
 				controlSocket = accept(listensocket, (struct sockaddr *)&remote, &rlen);
+				haveControlSocket = 1;
 				break;
 			}
 		}
@@ -150,17 +146,35 @@ void *ctrl_thread_fn(void *arg)
 		usleep(5000000);
 
 		while (1) {
-			int result = rtlsdr_get_tuner_i2c_register(dev, reg_values, NUM_I2C_REGISTERS);
+
+			/* check if i2c reporting is to be (de)activated */
+			if ( report_i2c && !data->report_i2c )
+				report_i2c = 0;
+			else if ( !report_i2c && data->report_i2c )
+				report_i2c = 1;
+
+			/* @TODO: check if something else has to be transmitted */
+			if ( !report_i2c )
+				goto sleep;
+
+			len = 0;
+			result = rtlsdr_get_tuner_i2c_register(dev, reg_values, &len, &strength);
+			//printf("len = %d, strength = %d\n", len, strength);
 			memset(txbuf, 0, TX_BUF_LEN);
 			if (result)
 				goto sleep;
 
 			//Big Endian / Network Byte Order
 			txbuf[0] = REPORT_I2C_REGS;
-			txbuf[1] = 0;
-			txbuf[2] = NUM_I2C_REGISTERS;
-			memcpy(&txbuf[3], reg_values, NUM_I2C_REGISTERS);
-			len = sizeof(txbuf);
+			txbuf[1] = ((len+2) >> 8) & 0xff;
+			txbuf[2] = (len+2) & 0xff;
+			txbuf[3] = (strength >> 8) & 0xff;
+			txbuf[4] = strength & 0xff;
+			/* now the message contents */
+			memcpy(&txbuf[5], reg_values, len);
+			len += 5;
+
+			/* now start (possibly blocking) transmission */
 			bytessent = 0;
 			bytesleft = len;
 			index = 0;
@@ -172,7 +186,7 @@ void *ctrl_thread_fn(void *arg)
 				tv.tv_usec = 0;
 				r = select(controlSocket + 1, NULL, &writefds, NULL, &tv);
 				if (r) {
-					bytessent = send(controlSocket, &txbuf[index], bytesleft, 0);
+					bytessent = send(controlSocket, (const char*)&txbuf[index], bytesleft, 0);
 					bytesleft -= bytessent;
 					index += bytessent;
 				}
@@ -184,7 +198,8 @@ sleep:
 			usleep(wait);
 		}
 close:
-		closesocket(controlSocket);
+		if (haveControlSocket)
+			closesocket(controlSocket);
 		if (*do_exit)
 		{
 			closesocket(listensocket);

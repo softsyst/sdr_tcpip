@@ -63,7 +63,6 @@
 #include <fcntl.h>
 #include <io.h>
 #include "getopt/getopt.h"
-#define usleep(x) Sleep(x/1000)
 #if defined(_MSC_VER) && (_MSC_VER < 1900)
 #define snprintf _snprintf
 #endif
@@ -621,7 +620,7 @@ static int toNextCmdLine(struct cmd_state *c)
 
 		if (verbosity >= 2)
 			fprintf(stderr, "read from cmd file: freq %.3f kHz, gain %0.1f dB, level %s {%.1f +/- %.1f}, cmd '%s %s'\n",
-				c->freq /1000.0, c->gain /10.0, 
+				c->freq /1000.0, c->gain /10.0,
 				aCritStr[c->trigCrit], c->refLevel, c->refLevelTol,
 				(c->command ? c->command : "%"), (c->args ? c->args : "") );
 
@@ -1274,7 +1273,8 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 	int i, muteLen = s->mute;
 	unsigned char sampleMax;
 	uint32_t sampleP, samplePowSum = 0.0;
-	int samplePowCount = 0, step = 2;
+	int samplePowCount = 0;
+	unsigned int step = 2;
 
 	if (do_exit) {
 		return;}

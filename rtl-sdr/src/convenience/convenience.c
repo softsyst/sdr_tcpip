@@ -40,6 +40,7 @@
 #include <math.h>
 
 #include "rtl-sdr.h"
+
 #ifdef _WIN32
 int gettimeofday(struct timeval *tv, void* ignored)
 {
@@ -60,14 +61,6 @@ int gettimeofday(struct timeval *tv, void* ignored)
 		tv->tv_usec = (long)(tmp % 1000000UL);
 	}
 	return 0;
-}
-
-#else
-static void sighandler(int signum)
-{
-	fprintf(stderr, "Signal caught, exiting!\n");
-	rtlsdr_cancel_async(dev);
-	do_exit = 1;
 }
 #endif
 
@@ -259,7 +252,7 @@ int verbose_auto_gain(rtlsdr_dev_t *dev)
 	int r;
 	r = rtlsdr_set_tuner_gain_mode(dev, 0);
 	if (r != 0) {
-		fprintf(stderr, "WARNING: Failed to set tuner gain.\n");
+		fprintf(stderr, "WARNING: Failed to enable automatic gain.\n");
 	} else {
 		fprintf(stderr, "Tuner gain set to automatic.\n");
 	}
@@ -504,7 +497,7 @@ void waveSetTime(Wind_SystemTime *p)
 #else
 	gmtime_r(&tv.tv_sec, &t);
 #endif
-	
+
 	p->wYear = t.tm_year + 1900;	/* 1601 through 30827 */
 	p->wMonth = t.tm_mon + 1;		/* 1..12 */
 	p->wDayOfWeek = t.tm_wday;		/* 0 .. 6: 0 == Sunday, .., 6 == Saturday */
@@ -519,11 +512,11 @@ void wavePrepareHeader(unsigned samplerate, unsigned freq, int bitsPerSample, in
 	int	bytesPerSample = bitsPerSample / 8;
 	int bytesPerFrame = bytesPerSample * numChannels;
 
-	strncpy( waveHdr.riffID, "RIFF", 4 );
+	memcpy( waveHdr.riffID, "RIFF", 4 );
 	waveHdr.riffSize = sizeof(waveFileHeader) - 8;		/* to fix */
-	strncpy( waveHdr.waveID, "WAVE", 4 );
+	memcpy( waveHdr.waveID, "WAVE", 4 );
 
-	strncpy( waveHdr.fmtID, "fmt ", 4 );
+	memcpy( waveHdr.fmtID, "fmt ", 4 );
 	waveHdr.fmtSize = 16;
 	waveHdr.wFormatTag = 1;					/* PCM */
 	waveHdr.nChannels = numChannels;		/* I and Q channels */
@@ -532,7 +525,7 @@ void wavePrepareHeader(unsigned samplerate, unsigned freq, int bitsPerSample, in
 	waveHdr.nBlockAlign = waveHdr.nChannels;
 	waveHdr.nBitsPerSample = bitsPerSample;
 
-	strncpy( waveHdr.auxiID, "auxi", 4 );
+	memcpy( waveHdr.auxiID, "auxi", 4 );
 	waveHdr.auxiSize = 2 * sizeof(Wind_SystemTime) + 9 * sizeof(int32_t);  /* = 2 * 16 + 9 * 4 = 68 */
 	waveSetTime( &waveHdr.StartTime );
 	waveHdr.StopTime = waveHdr.StartTime;		/* to fix */
@@ -546,7 +539,7 @@ void wavePrepareHeader(unsigned samplerate, unsigned freq, int bitsPerSample, in
 	waveHdr.Unused4 = 0;
 	waveHdr.Unused5 = 0;
 
-	strncpy( waveHdr.dataID, "data", 4 );
+	memcpy( waveHdr.dataID, "data", 4 );
 	waveHdr.dataSize = 0;		/* to fix later */
 	waveDataSize = 0;
 }

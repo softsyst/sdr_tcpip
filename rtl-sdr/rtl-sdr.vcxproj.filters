@@ -18,12 +18,6 @@
     <ClCompile Include="src\tuner_e4k.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\tuner_fc0012.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\tuner_fc0013.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\tuner_fc2580.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -34,6 +28,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\convenience\convenience.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tuner_fc001x.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -47,7 +47,7 @@
 #include "convenience/convenience.h"
 
 #ifdef _WIN32
-#pragma comment(lib, "ws2_32.lib")
+//#pragma comment(lib, "ws2_32.lib")
 
 typedef int socklen_t;
 
@@ -116,27 +116,6 @@ void usage(void)
 }
 
 #ifdef _WIN32
-/*int gettimeofday(struct timeval *tv, void* ignored)
-{
-	FILETIME ft;
-	unsigned __int64 tmp = 0;
-	if (NULL != tv) {
-		GetSystemTimeAsFileTime(&ft);
-		tmp |= ft.dwHighDateTime;
-		tmp <<= 32;
-		tmp |= ft.dwLowDateTime;
-		tmp /= 10;
-#ifdef _MSC_VER
-		tmp -= 11644473600000000Ui64;
-#else
-		tmp -= 11644473600000000ULL;
-#endif
-		tv->tv_sec = (long)(tmp / 1000000UL);
-		tv->tv_usec = (long)(tmp % 1000000UL);
-	}
-	return 0;
-}*/
-
 BOOL WINAPI
 sighandler(int signum)
 {
@@ -262,7 +241,7 @@ static void *udp_worker(void *arg)
 			free(prev);
 		}
 	}
-	return;
+	return NULL;
 }
 
 static int set_gain_by_index(rtlsdr_dev_t *_dev, unsigned int index)
@@ -303,7 +282,7 @@ static void *command_worker(void *arg)
 	struct command cmd={0, 0};
 	struct timeval tv= {1, 0};
 	int r = 0;
-	uint32_t tmp;
+	uint32_t param;
 
 	while(1) {
 		left=sizeof(cmd);
@@ -323,69 +302,70 @@ static void *command_worker(void *arg)
 				pthread_exit(NULL);
 			}
 		}
+
+		param = ntohl(cmd.param);
 		switch(cmd.cmd) {
 		case SET_FREQUENCY:
-			printf("set freq %ld\n", ntohl(cmd.param));
-			rtlsdr_set_center_freq(dev,ntohl(cmd.param));
+			printf("set freq %u\n", param);
+			rtlsdr_set_center_freq(dev, param);
 			break;
 		case SET_SAMPLE_RATE:
-			printf("set sample rate %ld\n", ntohl(cmd.param));
-			rtlsdr_set_sample_rate(dev, ntohl(cmd.param));
+			printf("set sample rate %u\n", param);
+			rtlsdr_set_sample_rate(dev, param);
 			/*verbose_set_bandwidth(dev, bandwidth);*/
 			break;
 		case SET_GAIN_MODE:
-			printf("set gain mode %ld\n", ntohl(cmd.param));
-			rtlsdr_set_tuner_gain_mode(dev, ntohl(cmd.param));
+			printf("set gain mode %u\n", param);
+			rtlsdr_set_tuner_gain_mode(dev, param);
 			break;
 		case SET_GAIN:
-			printf("set gain %ld\n", ntohl(cmd.param));
-			rtlsdr_set_tuner_gain(dev, ntohl(cmd.param));
+			printf("set gain %u\n", param);
+			rtlsdr_set_tuner_gain(dev, param);
 			break;
 		case SET_FREQUENCY_CORRECTION:
-			printf("set freq correction %ld\n", ntohl(cmd.param));
-			rtlsdr_set_freq_correction(dev, ntohl(cmd.param));
+			printf("set freq correction %d\n", (int)param);
+			rtlsdr_set_freq_correction(dev, (int)param);
 			break;
 		case SET_IF_STAGE:
-			tmp = ntohl(cmd.param);
-			printf("set if stage %d gain %d\n", tmp >> 16, (short)(tmp & 0xffff));
-			rtlsdr_set_tuner_if_gain(dev, tmp >> 16, (short)(tmp & 0xffff));
+			printf("set if stage %d gain %d\n", param >> 16, (short)(param & 0xffff));
+			rtlsdr_set_tuner_if_gain(dev, param >> 16, (short)(param & 0xffff));
 			break;
 		case SET_TEST_MODE:
-			printf("set test mode %ld\n", ntohl(cmd.param));
-			rtlsdr_set_testmode(dev, ntohl(cmd.param));
+			printf("set test mode %u\n", param);
+			rtlsdr_set_testmode(dev, param);
 			break;
 		case SET_AGC_MODE:
-			printf("set agc mode %ld\n", ntohl(cmd.param));
-			rtlsdr_set_agc_mode(dev, ntohl(cmd.param));
+			printf("set agc mode %u\n", param);
+			rtlsdr_set_agc_mode(dev, param);
 			break;
 		case SET_DIRECT_SAMPLING:
-			printf("set direct sampling %ld\n", ntohl(cmd.param));
-			rtlsdr_set_direct_sampling(dev, ntohl(cmd.param));
+			printf("set direct sampling %u\n", param);
+			rtlsdr_set_direct_sampling(dev, param);
 			break;
 		case SET_OFFSET_TUNING:
-			printf("set offset tuning %ld\n", ntohl(cmd.param));
-			rtlsdr_set_offset_tuning(dev, ntohl(cmd.param));
+			printf("set offset tuning %d\n", (int)param);
+			rtlsdr_set_offset_tuning(dev, (int)param);
 			break;
 		case SET_RTL_CRYSTAL:
-			printf("set rtl xtal %ld\n", ntohl(cmd.param));
-			rtlsdr_set_xtal_freq(dev, ntohl(cmd.param), 0);
+			printf("set rtl xtal %u\n", param);
+			rtlsdr_set_xtal_freq(dev, param, 0);
 			break;
 		case SET_TUNER_CRYSTAL:
-			printf("set tuner xtal %ld\n", ntohl(cmd.param));
-			rtlsdr_set_xtal_freq(dev, 0, ntohl(cmd.param));
+			printf("set tuner xtal %u\n", param);
+			rtlsdr_set_xtal_freq(dev, 0, param);
 			break;
 		case SET_TUNER_GAIN_BY_INDEX:
-			printf("set tuner gain by index %ld\n", ntohl(cmd.param));
-			set_gain_by_index(dev, ntohl(cmd.param));
+			printf("set tuner gain by index %u\n", param);
+			set_gain_by_index(dev, param);
 			break;
 		case SET_TUNER_BANDWIDTH:
-			bandwidth = ntohl(cmd.param);
+			bandwidth = param;
 			printf("set tuner bandwidth to %i Hz\n", bandwidth);
 			verbose_set_bandwidth(dev, bandwidth);
 			break;
 		case SET_BIAS_TEE:
-			printf("setting bias-t to %ld\n", ntohl(cmd.param));
-			rtlsdr_set_bias_tee(dev, ntohl(cmd.param));
+			printf("setting bias-t to %u\n", param);
+			rtlsdr_set_bias_tee(dev, param);
 			break;
 		case UDP_TERMINATE:
 			printf("comm recv bye\n");
@@ -397,6 +377,7 @@ static void *command_worker(void *arg)
 		}
 		cmd.cmd = 0xff;
 	}
+	return NULL;
 }
 
 struct ir_thread_data

@@ -1,3 +1,4 @@
+
 /*
  * Rafael Micro R820T/R828D driver
  *
@@ -40,15 +41,16 @@ Reg		Bitmap	Symbol			Description
 R0		[7:0]	CHIP_ID			reference check point for read mode: 0x96
 0x00
 ------------------------------------------------------------------------------------
-R1		?
+R1		[7:0]	IMR
 0x01
 ------------------------------------------------------------------------------------
 R2		[7]						0
 0x02	[6:0]	VCO_INDICATOR	Bit 6 = 1: PLL has locked
+		[5:0]
 ------------------------------------------------------------------------------------
-R3		[7:4]	RF_INDICATOR	LNA gain
+R3		[7:4]	RF_INDICATOR	Mixer gain
 0x03							0: Lowest, 15: Highest
-		[3:0]					Mixer gain
+		[3:0]					LNA gain
 								0: Lowest, 15: Highest
 ------------------------------------------------------------------------------------
 R4		[5:4]					vco_fine_tune
@@ -70,7 +72,8 @@ R6		[7] 	PWD_PDET1		Power detector 1 on/off
 								0: off, 1: on
 		[5] 	FILT_3DB		Filter gain 3db
 								0:0db, 1:+3db
-		[4:3]					10
+		[4]						1
+		[3]						cable2_in
 		[2:0]	PW_LNA			LNA power control
 								000: max, 111: min
 ------------------------------------------------------------------------------------
@@ -89,15 +92,17 @@ R8		[7] 	PWD_AMP			Mixer buffer power on/off
 0x08							0: off, 1:on
 		[6] 	PW0_AMP			Mixer buffer current setting
 								0: high current, 1: low current
-		[5:0] 	IMR_G			Image Gain Adjustment
-								0: min, 63: max
+		[5]						0: Q, 1: I
+		[4:0] 	IMR_G			Image Gain Adjustment
+								0: min, 31: max
 ------------------------------------------------------------------------------------
 R9		[7] 	PWD_IFFILT		IF Filter power on/off
 0x09							0: filter on, 1: off
 		[6] 	PW1_IFFILT		IF Filter current
 								0: high current, 1: low current
-		[5:0] 	IMR_P			Image Phase Adjustment
-								0: min, 63: max
+		[5]						0: Q, 1: I
+		[4:0] 	IMR_P			Image Phase Adjustment
+								0: min, 31: max
 ------------------------------------------------------------------------------------
 R10		[7] 	PWD_FILT		Filter power on/off
 0x0A							0: channel filter off, 1: on
@@ -142,10 +147,11 @@ R14 	[7:4] 	MIX_VTH_H		MIXER agc power detector voltage threshold high setting
 								0000: 0.34 V, ~0.1 V/step
 ------------------------------------------------------------------------------------
 R15		[7]						filter extension widest
-								0: off, 1: on
-0x0F	[4] 	CLK_OUT_ENB		Clock out pin control
+0x0F							0: off, 1: on
+		[4] 	CLK_OUT_ENB		Clock out pin control
 								0: clk output on, 1: off
-		[3]						1
+		[3]						ring clk
+								1: off, 0: on
 		[2]						set cali clk
 								0: off, 1: on
 		[1] 	CLK_AGC_ENB		AGC clk control
@@ -181,7 +187,7 @@ R18		[7:5] 					set VCO current
 		[3:0]					000
 ------------------------------------------------------------------------------------
 R19		[7:6]					00
-		[5:0]	VER_NUM			0x31
+0x13	[5:0]	VER_NUM			0x31
 ------------------------------------------------------------------------------------
 R20		[7:6] 	SI2C			PLL integer divider number input Si2c
 0x14							Nint=4*Ni2c+Si2c+13
@@ -204,6 +210,12 @@ R23		[7:6] 	PW_LDO_D		PLL digital low drop out regulator supply current switch
 								0: High-Z, 1: Low-Z
 		[2:0]					100
 ------------------------------------------------------------------------------------
+R24		[7:6]					01
+		[5]						ring_se23
+0x18	[4] 					ring power
+								0: off, 1:on
+		[3:0]					n_ring
+------------------------------------------------------------------------------------
 R25		[7] 	PWD_RFFILT		RF Filter power
 0x19							0: off, 1:on
 		[6:5]					RF poly filter current
@@ -212,6 +224,7 @@ R25		[7] 	PWD_RFFILT		RF Filter power
 								0:agc=agc_in
 								1:agc=agc_in2
 		[3:2]					11
+		[1:0]					ring_seldiv
 ------------------------------------------------------------------------------------
 R26		[7:6] 	RFMUX			Tracking Filter switch
 0x1A							00: TF on
@@ -222,14 +235,14 @@ R26		[7:6] 	RFMUX			Tracking Filter switch
 								00: 128 kHz
 								01: 32 kHz
 								10: 8 kHz
-		[1:0] RFFILT			RF FILTER band selection
+		[1:0]	RFFILT			RF FILTER band selection
 								00: highest band
 								01: med band
 								10: low band
 ------------------------------------------------------------------------------------
-R27		[7:4] TF_NCH			0000 highest corner for LPNF
+R27		[7:4]	TF_NCH			0000 highest corner for LPNF
 0x1B							1111 lowerst corner for LPNF
-		[3:0] TF_LP				0000 highest corner for LPF
+		[3:0]	TF_LP			0000 highest corner for LPF
 								1111 lowerst corner for LPF
 ------------------------------------------------------------------------------------
 R28		[7:4]	PDET3_GAIN		Power detector 3 (Mixer) TOP(take off point) control
@@ -237,6 +250,7 @@ R28		[7:4]	PDET3_GAIN		Power detector 3 (Mixer) TOP(take off point) control
 		[3]						discharge mode
 								0: on
 		[2]						1
+		[1]						1: from ring = ring pll in
 		[0]						0
 ------------------------------------------------------------------------------------
 R29		[7:6]					11
@@ -245,8 +259,9 @@ R29		[7:6]					11
 		[2:0] 	PDET2_GAIN		Power detector 2 TOP(take off point) control
 								0: Highest, 7: Lowest
 ------------------------------------------------------------------------------------
-R30		[7]						0
-0x1E 	[6]		FILTER_EXT		Filter extension under weak signal
+R30		[7]						sw_pdect
+0x1E							1: sw_pdect = det3
+	 	[6]		FILTER_EXT		Filter extension under weak signal
 								0: Disable, 1: Enable
 		[5:0]	PDET_CLK		Power detector timing control (LNA discharge current)
 	 							111111: max, 000000: min
@@ -254,6 +269,7 @@ R30		[7]						0
 R31		[7]						Loop through attenuation
 0x1F							0: Enable, 1: Disable
 		[6:2]					10000
+		[1:0]					pw_ring
 ------------------------------------------------------------------------------------
 R0...R4 read, R5...R15 read/write, R16..R31 write
 */
@@ -296,7 +312,7 @@ static const uint8_t r82xx_init_array[] = {
 /* Tuner frequency ranges */
 static const struct r82xx_freq_range freq_ranges[] = {
 	{
-	/* .freq = */			0,	/* Start freq, in MHz */
+	/* .freq = */			0,		/* Start freq, in MHz */
 	/* .open_d = */			0x08,	/* low */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0xdf,	/* R27[7:0]  band2,band0 */
@@ -304,7 +320,7 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap10p = */	0x01,
 	/* .xtal_cap0p = */		0x00,
 	}, {
-	/* .freq = */			50,	/* Start freq, in MHz */
+	/* .freq = */			50,		/* Start freq, in MHz */
 	/* .open_d = */			0x08,	/* low */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0xbe,	/* R27[7:0]  band4,band1  */
@@ -312,7 +328,7 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap10p = */	0x01,
 	/* .xtal_cap0p = */		0x00,
 	}, {
-	/* .freq = */			55,	/* Start freq, in MHz */
+	/* .freq = */			55,		/* Start freq, in MHz */
 	/* .open_d = */			0x08,	/* low */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0x8b,	/* R27[7:0]  band7,band4 */
@@ -320,7 +336,7 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap10p = */	0x01,
 	/* .xtal_cap0p = */		0x00,
 	}, {
-	/* .freq = */			60,	/* Start freq, in MHz */
+	/* .freq = */			60,		/* Start freq, in MHz */
 	/* .open_d = */			0x08,	/* low */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0x7b,	/* R27[7:0]  band8,band4 */
@@ -328,7 +344,7 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap10p = */	0x01,
 	/* .xtal_cap0p = */		0x00,
 	}, {
-	/* .freq = */			65,	/* Start freq, in MHz */
+	/* .freq = */			65,		/* Start freq, in MHz */
 	/* .open_d = */			0x08,	/* low */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0x69,	/* R27[7:0]  band9,band6 */
@@ -336,7 +352,7 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap10p = */	0x01,
 	/* .xtal_cap0p = */		0x00,
 	}, {
-	/* .freq = */			70,	/* Start freq, in MHz */
+	/* .freq = */			70,		/* Start freq, in MHz */
 	/* .open_d = */			0x08,	/* low */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0x58,	/* R27[7:0]  band10,band7 */
@@ -344,7 +360,7 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap10p = */	0x01,
 	/* .xtal_cap0p = */		0x00,
 	}, {
-	/* .freq = */			75,	/* Start freq, in MHz */
+	/* .freq = */			75,		/* Start freq, in MHz */
 	/* .open_d = */			0x00,	/* high */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0x44,	/* R27[7:0]  band11,band11 */
@@ -352,39 +368,15 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap10p = */	0x01,
 	/* .xtal_cap0p = */		0x00,
 	}, {
-	/* .freq = */			80,	/* Start freq, in MHz */
-	/* .open_d = */			0x00,	/* high */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */			0x44,	/* R27[7:0]  band11,band11 */
-	/* .xtal_cap20p = */	0x02,	/* R16[1:0]  20pF (10)   */
-	/* .xtal_cap10p = */	0x01,
-	/* .xtal_cap0p = */		0x00,
-	}, {
-	/* .freq = */			90,	/* Start freq, in MHz */
+	/* .freq = */			90,		/* Start freq, in MHz */
 	/* .open_d = */			0x00,	/* high */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0x34,	/* R27[7:0]  band12,band11 */
 	/* .xtal_cap20p = */	0x01,	/* R16[1:0]  10pF (01)   */
-	/* .xtal_cap10p = */	0x01,
-	/* .xtal_cap0p = */		0x00,
-	}, {
-	/* .freq = */			100,	/* Start freq, in MHz */
-	/* .open_d = */			0x00,	/* high */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */			0x34,	/* R27[7:0]  band12,band11 */
-	/* .xtal_cap20p = */	0x01,	/* R16[1:0]  10pF (01)    */
 	/* .xtal_cap10p = */	0x01,
 	/* .xtal_cap0p = */		0x00,
 	}, {
 	/* .freq = */			110,	/* Start freq, in MHz */
-	/* .open_d = */			0x00,	/* high */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */			0x24,	/* R27[7:0]  band13,band11 */
-	/* .xtal_cap20p = */	0x01,	/* R16[1:0]  10pF (01)   */
-	/* .xtal_cap10p = */	0x01,
-	/* .xtal_cap0p = */		0x00,
-	}, {
-	/* .freq = */			120,	/* Start freq, in MHz */
 	/* .open_d = */			0x00,	/* high */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0x24,	/* R27[7:0]  band13,band11 */
@@ -401,14 +393,6 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap0p = */		0x00,
 	}, {
 	/* .freq = */			180,	/* Start freq, in MHz */
-	/* .open_d = */			0x00,	/* high */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */			0x13,	/* R27[7:0]  band14,band12 */
-	/* .xtal_cap20p = */	0x00,	/* R16[1:0]  0pF (00)   */
-	/* .xtal_cap10p = */	0x00,
-	/* .xtal_cap0p = */		0x00,
-	}, {
-	/* .freq = */			220,	/* Start freq, in MHz */
 	/* .open_d = */			0x00,	/* high */
 	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
 	/* .tf_c = */			0x13,	/* R27[7:0]  band14,band12 */
@@ -433,14 +417,6 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .xtal_cap0p = */		0x00,
 	}, {
 	/* .freq = */			310,	/* Start freq, in MHz */
-	/* .open_d = */			0x00,	/* high */
-	/* .rf_mux_ploy = */	0x41,	/* R26[7:6]=1 (bypass)  R26[1:0]=1 (middle) */
-	/* .tf_c = */			0x00,	/* R27[7:0]  highest,highest */
-	/* .xtal_cap20p = */	0x00,	/* R16[1:0]  0pF (00)   */
-	/* .xtal_cap10p = */	0x00,
-	/* .xtal_cap0p = */		0x00,
-	}, {
-	/* .freq = */			450,	/* Start freq, in MHz */
 	/* .open_d = */			0x00,	/* high */
 	/* .rf_mux_ploy = */	0x41,	/* R26[7:6]=1 (bypass)  R26[1:0]=1 (middle) */
 	/* .tf_c = */			0x00,	/* R27[7:0]  highest,highest */
@@ -495,8 +471,8 @@ static int r82xx_write(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val,
 	shadow_store(priv, reg, val, len);
 
 	do {
-		if (len > priv->cfg->max_i2c_msg_len - 1)
-			size = priv->cfg->max_i2c_msg_len - 1;
+		if (len > MAX_I2C_MSG_LEN - 1)
+			size = MAX_I2C_MSG_LEN - 1;
 		else
 			size = len;
 
@@ -523,7 +499,7 @@ static int r82xx_write(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val,
 	return 0;
 }
 
-static int r82xx_write_reg(struct r82xx_priv *priv, uint8_t reg, uint8_t val)
+static inline int r82xx_write_reg(struct r82xx_priv *priv, uint8_t reg, uint8_t val)
 {
 	return r82xx_write(priv, reg, &val, 1);
 }
@@ -820,26 +796,13 @@ static int r82xx_sysfreq_sel(struct r82xx_priv *priv,
 {
 	int rc;
 
-	uint8_t lna_top = 0xe5;		/* detect bw 3, lna top:4, predet top:2 */
-	uint8_t pre_dect = 0x40;
-	uint8_t air_cable1_in = 0x00;
-	uint8_t cable2_in = 0x00;
-
 	if (priv->cfg->use_predetect) {
-		rc = r82xx_write_reg_mask(priv, 0x06, pre_dect, 0x40);
+		rc = r82xx_write_reg_mask(priv, 0x06, 0x40, 0x40);
 		if (rc < 0)
 			return rc;
 	}
 
-	priv->input = air_cable1_in;
-
-	/* Air-IN only for Astrometa */
-	rc = r82xx_write_reg_mask(priv, 0x05, air_cable1_in, 0x60);
-	if (rc < 0)
-		return rc;
-	rc = r82xx_write_reg_mask(priv, 0x06, cable2_in, 0x08);
-	if (rc < 0)
-		return rc;
+	priv->input = 0;
 
 	/*
 	 * Set LNA
@@ -876,8 +839,8 @@ static int r82xx_sysfreq_sel(struct r82xx_priv *priv,
 		if (rc < 0)
 			return rc;
 
-		/* write LNA TOP */
-		rc = r82xx_write_reg_mask(priv, 0x1d, lna_top, 0x38);
+		/* write LNA TOP */ /* detect bw 3, lna top:4, predet top:2 */
+		rc = r82xx_write_reg_mask(priv, 0x1d, 0xe5, 0x38);
 		if (rc < 0)
 			return rc;
 
@@ -893,157 +856,57 @@ static int r82xx_sysfreq_sel(struct r82xx_priv *priv,
 	 return 0;
 }
 
-static int r82xx_set_tv_standard(struct r82xx_priv *priv,
-				 enum r82xx_tuner_type type,
-				 uint32_t delsys)
-
+int r82xx_set_gain_mode(struct r82xx_priv *priv, int set_manual_gain)
 {
-	int rc, i;
-	uint8_t data[5];
-
-	int need_calibration = 1;
-
-	/* BW < 6 MHz */
-	uint32_t filt_cal_lo = 56000;	/* 52000->56000 */
-	uint8_t filt_q = 0x10;		/* r10[4]:low q(1'b1) */
-
-	/* for LT Gain test */
-	if (type != TUNER_ANALOG_TV) {
-		rc = r82xx_write_reg_mask(priv, 0x1d, 0x00, 0x38);
-		if (rc < 0)
-			return rc;
-	}
-	priv->int_freq = 3570 * 1000;
-	priv->sideband = 0;
-
-	/* Check if standard changed. If so, filter calibration is needed */
-	/* as we call this function only once in rtlsdr, force calibration */
-
-	if (need_calibration) {
-		for (i = 0; i < 2; i++) {
-
-			/* set cali clk =on */
-			rc = r82xx_write_reg_mask(priv, 0x0f, 0x04, 0x04);
-			if (rc < 0)
-				return rc;
-
-			rc = r82xx_set_pll(priv, filt_cal_lo * 1000);
-			if (rc < 0 || !priv->has_lock)
-				return rc;
-
-			/* Start Trigger */
-			rc = r82xx_write_reg_mask(priv, 0x0b, 0x10, 0x10);
-			if (rc < 0)
-				return rc;
-
-			/* Stop Trigger */
-			rc = r82xx_write_reg_mask(priv, 0x0b, 0x00, 0x10);
-			if (rc < 0)
-				return rc;
-
-			/* set cali clk =off */
-			rc = r82xx_write_reg_mask(priv, 0x0f, 0x00, 0x04);
-			if (rc < 0)
-				return rc;
-
-			/* Check if calibration worked */
-			rc = r82xx_read(priv, data, sizeof(data));
-			if (rc < 0)
-				return rc;
-
-			priv->fil_cal_code = data[4] & 0x0f;
-			if (priv->fil_cal_code && priv->fil_cal_code != 0x0f)
-				break;
-		}
-		/* narrowest */
-		if (priv->fil_cal_code == 0x0f)
-			priv->fil_cal_code = 0;
-	}
-
-	rc = r82xx_write_reg_mask(priv, 0x0a,
-				  filt_q | priv->fil_cal_code, 0x1f);
-	if (rc < 0)
-		return rc;
-
-	/* Store current standard. If it changes, re-calibrate the tuner */
-	priv->delsys = delsys;
-	priv->type = type;
-	priv->bw = 3;
-
-	return 0;
+	return r82xx_write_reg_mask(priv, 0x0c, set_manual_gain ? 0x00 : 0x10, 0x10);
 }
 
-
-/* measured with a Racal 6103E GSM test set at 928 MHz with -60 dBm
- * input power, for raw results see:
- * http://steve-m.de/projects/rtl-sdr/gain_measurement/r820t/
- */
-
-#define VGA_BASE_GAIN	-47
-static const int r82xx_vga_gain_steps[]  = {
-	0, 36, 34, 34, 36, 36, 42, 34, 36, 38, 34, 32, 38, 34, 32, 40
-};
-
-static const int r82xx_lna_gain_steps[]  = {
-	0, 9, 13, 40, 38, 13, 31, 22, 26, 31, 26, 14, 19, 5, 35, 13
-};
-
-static const int r82xx_mixer_gain_steps[]  = {
-	0, 5, 10, 10, 19, 9, 10, 25, 17, 10, 8, 16, 13, 6, 3, -8
-};
-
-int r82xx_set_gain(struct r82xx_priv *priv, int set_manual_gain, int gain)
+int r82xx_set_gain(struct r82xx_priv *priv, int gain)
 {
-	int rc;
-
-	int i, total_gain = 0;
-	uint8_t vga_index = 0;
-
-	if (set_manual_gain) {
-		/* set VGA gain */
-		for (i = 0; i < 15; i++) {
-			if (total_gain >= gain)
-				break;
-			total_gain += r82xx_vga_gain_steps[++vga_index];
-		}
-		rc = r82xx_write_reg_mask(priv, 0x0c, vga_index, 0x1f); //IF vga gain controlled by vga_code[3:0]
-	} else
-		rc = r82xx_write_reg_mask(priv, 0x0c, 0x10, 0x1f); //IF vga gain controlled by vagc pin
-	if (rc < 0)
-		return rc;
-	//print_registers(priv);
-	return 0;
+	/* set VGA gain */
+	int vga_index = gain / 35;
+	if (vga_index > 15)
+		vga_index = 15;
+	else if (vga_index < 0)
+		vga_index = 0;
+	return r82xx_write_reg_mask(priv, 0x0c, vga_index, 0x0f);
 }
 
 
 /* expose/permit tuner specific i2c register hacking! */
 int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned data, unsigned mask)
 {
-	uint8_t reg = i2c_register & 0xFF;
-	uint8_t reg_mask = mask & 0xFF;
-	uint8_t reg_val = data & 0xFF;
-	return r82xx_write_reg_mask(priv, reg, reg_val, reg_mask);
+	return r82xx_write_reg_mask(priv, i2c_register & 0xFF, data & 0xff, mask & 0xff);
 }
 
-//-cs-
-int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int len)
+static const int r82xx_lna_gains[]  = {
+	0, 36, 80, 114, 138, 152, 176, 206, 236, 264, 280, 290, 302, 324, 344, 352
+};
+static const int r82xx_mixer_gains[]  = {
+	0, 16, 38, 56, 70, 84, 98, 112, 126, 140, 154, 168, 180, 180, 180, 180
+};
+static int r82xx_get_signal_strength(unsigned char* data)
 {
-	int rc, i, len1;
+	int vga_gain = (data[0x0c] & 0x0f) * 35;
+	int lna_gain = r82xx_lna_gains[data[3] & 0xf];
+	int mixer_gain = r82xx_mixer_gains[(data[3] >> 4) & 0xf];
+	return 1057 - vga_gain - lna_gain - mixer_gain;
+}
 
+int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *len, int *strength)
+{
+	int rc, i;
+
+	*len = 32;
 	// The lower 16 I2C registers can be read with the normal read fct, the upper ones are read from the cache
-	if(len < 5)
-		len1 = len;
-	else
-		len1 = 5;
-	rc = r82xx_read(priv, data, len1);
+	rc = r82xx_read(priv, data, 5);
 	if (rc < 0)
 		return rc;
-	if(len > 5)
-		for (i = 5; i < len; i++)
-			data[i] = r82xx_read_cache_reg(priv, i);
+	for (i = 5; i < 32; i++)
+		data[i] = r82xx_read_cache_reg(priv, i);
+	*strength = r82xx_get_signal_strength(data);
 	return 0;
 }
-//-cs- end
 
 static const int r82xx_bws[]=     {  300,  450,  600,  900, 1100, 1200, 1300, 1500, 1800, 2200, 3000, 5000 };
 static const uint8_t r82xx_0xa[]= { 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0e, 0x0f, 0x0f, 0x04, 0x0b };
@@ -1076,15 +939,15 @@ int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t * applied_bw, 
 	if (rc < 0)
 		return rc;
 
-	return priv->int_freq;
    //print_registers(priv);
+	return priv->int_freq;
 }
 
 int r82xx_set_sideband(struct r82xx_priv *priv, int sideband)
 {
 	int rc;
 	priv->sideband = sideband;
-	rc = r82xx_write_reg_mask(priv, 0x07, (sideband << 7) & 0x80, 0x80);
+	rc = r82xx_write_reg_mask(priv, 0x07, sideband ? 0x80 : 0x00, 0x80);
 	if (rc < 0)
 		return rc;
 	return 0;
@@ -1188,10 +1051,13 @@ int r82xx_init(struct r82xx_priv *priv)
 
 	/* Initialize registers */
 	rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array));
-
-	rc = r82xx_set_tv_standard(priv, TUNER_DIGITAL_TV, 0);
 	if (rc < 0)
 		goto err;
+
+	priv->int_freq = 3570 * 1000;
+	priv->sideband = 0;
+	priv->type =  TUNER_DIGITAL_TV;
+	priv->bw = 5;
 
 	rc = r82xx_sysfreq_sel(priv, TUNER_DIGITAL_TV);
 

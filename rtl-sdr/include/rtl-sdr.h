@@ -24,8 +24,8 @@
 extern "C" {
 #endif
 
-#ifndef WIN32
-//#define _ENABLE_RPC
+#ifdef _WIN32
+#define usleep(x) Sleep(x/1000)
 #endif
 
 
@@ -436,6 +436,7 @@ RTLSDR_API int rtlsdr_cancel_async(rtlsdr_dev_t *dev);
  */
 RTLSDR_API int rtlsdr_ir_query(rtlsdr_dev_t *dev, uint8_t *buf, size_t buf_len);
 
+void rtlsdr_set_gpio_bit(rtlsdr_dev_t *dev, uint8_t gpio, int val);
 
 /*!
  * Enable or disable the bias tee on GPIO PIN 0. (Works for rtl-sdr.com v3 dongles)
@@ -485,7 +486,7 @@ RTLSDR_API int rtlsdr_set_opt_string(rtlsdr_dev_t *dev, const char *opts, int ve
  */
 RTLSDR_API int rtlsdr_set_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned i2c_register, unsigned mask, unsigned data);
 
-RTLSDR_API int rtlsdr_get_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned char* data, int len);
+RTLSDR_API int rtlsdr_get_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned char* data, int *len, int *strength);
 
 #ifdef __cplusplus
 }

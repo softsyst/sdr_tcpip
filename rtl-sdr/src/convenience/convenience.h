@@ -19,6 +19,9 @@
 
 #include <stdint.h>
 
+#ifdef _WIN32
+int gettimeofday(struct timeval *tv, void* ignored);
+#endif
 
 /* a collection of user friendly tools */
 
@@ -168,7 +171,7 @@ void executeInBackground( char * file, char * args, char * searchStr[], char * r
  * and call waveFinalizeHeader() afterwards,
  * AND count/increment the written raw size in variable 'waveDataSize'.
  * stdout/stdout can't be used, because seek to begin isn't possible.
- * 
+ *
  */
 
 extern uint32_t	waveDataSize;

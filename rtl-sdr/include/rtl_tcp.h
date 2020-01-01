@@ -24,7 +24,6 @@
 extern "C" {
 #endif
 
-
 /*!
  * This enum defines the possible commands in rtl_tcp
  * commands 0x01..0x0E are compatible to osmocom's rtlsdr
@@ -65,22 +64,11 @@ enum RTL_TCP_COMMANDS {
     SET_TUNER_BW_IF_CENTER    = 0x45,   /* freq from SET_FREQUENCY stays in center;
                                          * the bandwidth (from SET_TUNER_BANDWIDTH)
                                          * is set to be centered at given IF frequency */
-    SET_SIDEBAND              = 0x46,	/* Mixer Sideband for R820T */
+    //SET_TUNER_AGC_VARIANT     = 0x46,   /* set tuner agc algorithm/variant */
+    SET_SIDEBAND              = 0x46,   /* Mixer Sideband for R820T */
+    REPORT_I2C_REGS           = 0x48,   /* perodically report I2C registers
+                                         * - if reverse channel is enabled */
 };
-typedef struct
-{
-	struct rtlsdr_dev_t *dev;
-	SOCKET port;
-	int wait;
-	char *addr;
-	int* pDoExit;
-}
-ctrl_thread_data_t;
-void *ctrl_thread_fn(void *arg);
-
-#define TUNER_AIRSPY 11
-#define AIRSPY_LINEARITY_GAIN_STEPS 22
-#define AIRSPY_VGA_GAIN_STEPS 16
 
 #ifdef __cplusplus
 }

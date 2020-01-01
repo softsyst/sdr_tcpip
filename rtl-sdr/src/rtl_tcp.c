@@ -1,4 +1,3 @@
-
 /*
  * rtl-sdr, turns your Realtek RTL2832 based DVB dongle into a SDR receiver
  * Copyright (C) 2012 by Steve Markgraf <steve@steve-m.de>
@@ -36,7 +35,6 @@
 #else
 #include <winsock2.h>
 #include "getopt/getopt.h"
-#define usleep(x) Sleep(x/1000)
 #endif
 
 #ifdef NEED_PTHREADS_WORKARROUND
@@ -46,10 +44,10 @@
 
 #include "rtl-sdr.h"
 #include "rtl_tcp.h"
-//#include "convenience/convenience.h"
+#include "convenience/convenience.h"
 
 #ifdef _WIN32
-#pragma comment(lib, "ws2_32.lib")
+//#pragma comment(lib, "ws2_32.lib")
 
 typedef int socklen_t;
 
@@ -59,6 +57,10 @@ typedef int socklen_t;
 #define SOCKET int
 #define SOCKET_ERROR -1
 #endif
+
+#include "controlThread.h"
+
+static ctrl_thread_data_t ctrldata;
 
 static SOCKET s;
 
@@ -243,9 +245,10 @@ static void *tcp_worker(void *arg)
 			free(prev);
 		}
 	}
+	return NULL;
 }
 
-//extern void print_demod_register(rtlsdr_dev_t *dev, uint8_t page);
+extern void print_demod_register(rtlsdr_dev_t *dev, uint8_t page);
 
 static int set_gain_by_index(rtlsdr_dev_t *_dev, unsigned int index)
 {
@@ -285,7 +288,7 @@ static void *command_worker(void *arg)
 	struct command cmd={0, 0};
 	struct timeval tv= {1, 0};
 	int r = 0;
-	unsigned int tmp;
+	uint32_t param;
 
 	while(1) {
 		left=sizeof(cmd);
@@ -305,94 +308,92 @@ static void *command_worker(void *arg)
 				pthread_exit(NULL);
 			}
 		}
+
+		param = ntohl(cmd.param);
 		switch(cmd.cmd) {
 		case SET_FREQUENCY://0x01
-			printf("set freq %ld\n", ntohl(cmd.param));
-			rtlsdr_set_center_freq(dev,ntohl(cmd.param));
+			printf("set freq %u\n", param);
+			rtlsdr_set_center_freq(dev, param);
 			break;
 		case SET_SAMPLE_RATE://0x02
-			printf("set sample rate %ld\n", ntohl(cmd.param));
-			rtlsdr_set_sample_rate(dev, ntohl(cmd.param));
-			/*verbose_set_bandwidth(dev, bandwidth);*/
+			printf("set sample rate %u\n", param);
+			rtlsdr_set_sample_rate(dev, param);
 			break;
 		case SET_GAIN_MODE://0x03
-			tmp = ntohl(cmd.param);
-			printf("set gain mode %d\n", tmp);
-			rtlsdr_set_tuner_gain_mode(dev, tmp);
+			printf("set gain mode %u\n", param);
+			rtlsdr_set_tuner_gain_mode(dev, param);
 			break;
 		case SET_GAIN://0x04
-			tmp = ntohl(cmd.param);
-			printf("set gain %d\n", tmp);
-			rtlsdr_set_tuner_gain(dev, tmp);
+			printf("set gain %u\n", param);
+			rtlsdr_set_tuner_gain(dev, param);
 			break;
 		case SET_FREQUENCY_CORRECTION://0x05
-			printf("set freq correction %ld\n", ntohl(cmd.param));
-			rtlsdr_set_freq_correction(dev, ntohl(cmd.param));
+			printf("set freq correction %d\n", (int)param);
+			rtlsdr_set_freq_correction(dev, (int)param);
 			break;
-		case SET_IF_STAGE:
-			tmp = ntohl(cmd.param);
-			printf("set if stage %d gain %d\n", tmp >> 16, (short)(tmp & 0xffff));
-			rtlsdr_set_tuner_if_gain(dev, tmp >> 16, (short)(tmp & 0xffff));
+		case SET_IF_STAGE://0x06
+			printf("set if stage %d gain %d\n", param >> 16, (short)(param & 0xffff));
+			rtlsdr_set_tuner_if_gain(dev, param >> 16, (short)(param & 0xffff));
 			break;
-		case SET_TEST_MODE:
-			printf("set test mode %ld\n", ntohl(cmd.param));
-			rtlsdr_set_testmode(dev, ntohl(cmd.param));
+		case SET_TEST_MODE://0x07
+			printf("set test mode %u\n", param);
+			rtlsdr_set_testmode(dev, param);
 			break;
 		case SET_AGC_MODE://0x08
-			tmp = ntohl(cmd.param);
-			//tmp = 1;
-			printf("set agc mode %d\n", tmp);
-			rtlsdr_set_agc_mode(dev, tmp);
+			printf("set agc mode %u\n", param);
+			rtlsdr_set_agc_mode(dev, param);
 			break;
 		case SET_DIRECT_SAMPLING://0x09
-			printf("set direct sampling %ld\n", ntohl(cmd.param));
-			rtlsdr_set_direct_sampling(dev, ntohl(cmd.param));
+			printf("set direct sampling %u\n", param);
+			rtlsdr_set_direct_sampling(dev, param);
 			break;
 		case SET_OFFSET_TUNING://0x0a
-			printf("set offset tuning %ld\n", ntohl(cmd.param));
-			rtlsdr_set_offset_tuning(dev, ntohl(cmd.param));
+			printf("set offset tuning %d\n", (int)param);
+			rtlsdr_set_offset_tuning(dev, (int)param);
 			break;
-		case SET_RTL_CRYSTAL:
-			printf("set rtl xtal %ld\n", ntohl(cmd.param));
-			rtlsdr_set_xtal_freq(dev, ntohl(cmd.param), 0);
+		case SET_RTL_CRYSTAL://0x0b
+			printf("set rtl xtal %u\n", param);
+			rtlsdr_set_xtal_freq(dev, param, 0);
 			break;
-		case SET_TUNER_CRYSTAL:
-			printf("set tuner xtal %ld\n", ntohl(cmd.param));
-			rtlsdr_set_xtal_freq(dev, 0, ntohl(cmd.param));
+		case SET_TUNER_CRYSTAL://0x0c
+			printf("set tuner xtal %u\n", param);
+			rtlsdr_set_xtal_freq(dev, 0, param);
 			break;
-		case SET_TUNER_GAIN_BY_INDEX:
-			printf("set tuner gain by index %ld\n", ntohl(cmd.param));
-			set_gain_by_index(dev, ntohl(cmd.param));
-			//print_demod_register(dev, 0);
-			//print_demod_register(dev, 1);
+		case SET_TUNER_GAIN_BY_INDEX://0x0d
+			printf("set tuner gain by index %u\n", param);
+			set_gain_by_index(dev, param);
 			break;
-		case SET_BIAS_TEE:
-			printf("set bias tee %ld\n", ntohl(cmd.param));
-			rtlsdr_set_bias_tee(dev, (int)ntohl(cmd.param));
+		case SET_BIAS_TEE://0x0e
+			printf("set bias tee %u\n", param);
+			rtlsdr_set_bias_tee(dev, param);
 			break;
 		case SET_TUNER_BANDWIDTH://0x40
-			bandwidth = ntohl(cmd.param);
+			bandwidth = param;
 			printf("set tuner bandwidth to %i Hz\n", bandwidth);
 			verbose_set_bandwidth(dev, bandwidth);
 			break;
 		case SET_I2C_TUNER_REGISTER://0x43
-			tmp = ntohl(cmd.param);
-			printf("set i2c register x%03X to x%03X with mask x%02X\n", (tmp >> 20) & 0xfff, tmp & 0xfff, (tmp >> 12) & 0xff );
-			rtlsdr_set_tuner_i2c_register(dev, (tmp >> 20) & 0xfff, (tmp >> 12) & 0xff, tmp & 0xfff);
+			printf("set i2c register x%03X to x%03X with mask x%02X\n", (param >> 20) & 0xfff, param & 0xfff, (param >> 12) & 0xff );
+			rtlsdr_set_tuner_i2c_register(dev, (param >> 20) & 0xfff, (param >> 12) & 0xff, param & 0xfff);
 			break;
 		case SET_SIDEBAND://0x46
-			tmp = ntohl(cmd.param) & 1;
-			if(tmp)
-				printf("set to upper sideband\n");
-			else
-				printf("set to lower sideband\n");
-			rtlsdr_set_tuner_sideband(dev, tmp);
+			if(param)
+				param = 1;
+			printf("set to %s sideband\n", param ? "upper" : "lower");
+			rtlsdr_set_tuner_sideband(dev, param);
+			break;
+		case REPORT_I2C_REGS:
+			if(param)
+				param = 1;
+			ctrldata.report_i2c = param;  /* (de)activate reporting */
+			printf("Read Registers\n");
 			break;
 		default:
 			break;
 		}
 		cmd.cmd = 0xff;
 	}
+	return NULL;
 }
 
 
@@ -402,6 +403,10 @@ int main(int argc, char **argv)
 	char* addr = "127.0.0.1";
 	int port = 1234;
 	pthread_t thread_ctrl; //-cs- for periodically reading the register values
+	int port_resp = 1;
+	int report_i2c = 0;
+	int do_exit_thrd_ctrl = 0;
+
 	uint32_t frequency = 100000000, samp_rate = 2048000;
 	enum rtlsdr_ds_mode ds_mode = RTLSDR_DS_IQ;
 	uint32_t ds_temp, ds_threshold = 0;
@@ -437,8 +442,6 @@ int main(int argc, char **argv)
 	dongle_info_t dongle_info;
 	int gains[100];
 
-	int do_exit_thrd_ctrl = 0;
-
 #ifdef _WIN32
 	WSADATA wsd;
 	i = WSAStartup(MAKEWORD(2,2), &wsd);
@@ -447,9 +450,9 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.85 for QIRX, 08.11.2019\n\n");
+		   "Version 0.86 for QIRX, 21.12.2019\n\n");
 
-	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:p:s:uI:vI:w:D:P:TI")) != -1) {
+	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:p:us:vr:w:D:TP")) != -1) {
 		switch (opt) {
 		case 'a':
 			addr = optarg;
@@ -475,6 +478,10 @@ int main(int argc, char **argv)
 			break;
 		case 'p':
 			port = atoi(optarg);
+			break;
+		case 'r':
+			port_resp = atoi(optarg);
+			report_i2c = 0;
 			break;
 		case 's':
 			samp_rate = (uint32_t)atofs(optarg);
@@ -544,9 +551,7 @@ int main(int argc, char **argv)
 	verbose_ppm_set(dev, ppm_error);
 
 	/* Set the sample rate */
-	r = rtlsdr_set_sample_rate(dev, samp_rate);
-	if (r < 0)
-		fprintf(stderr, "WARNING: Failed to set sample rate.\n");
+	verbose_set_sample_rate(dev, samp_rate);
 
 	/* Set direct sampling with threshold */
 	rtlsdr_set_ds_mode(dev, ds_mode, ds_threshold);
@@ -558,24 +563,15 @@ int main(int argc, char **argv)
 	else
 		fprintf(stderr, "Tuned to %i Hz.\n", frequency);
 
-	if (0 == gain) {
+	if (gain == 0) {
 		 // Enable automatic gain
-		r = rtlsdr_set_tuner_gain_mode(dev, 0);
-		if (r < 0)
-			fprintf(stderr, "WARNING: Failed to enable automatic gain.\n");
+		verbose_auto_gain(dev);
 	} else {
 		// Enable manual gain
-		r = rtlsdr_set_tuner_gain_mode(dev, 1);
-		if (r < 0)
-			fprintf(stderr, "WARNING: Failed to enable manual gain.\n");
-
-		// Set the tuner gain
-		r = rtlsdr_set_tuner_gain(dev, gain);
-		if (r < 0)
-			fprintf(stderr, "WARNING: Failed to set tuner gain.\n");
-		else
-			fprintf(stderr, "Tuner gain set to %f dB.\n", gain/10.0);
+		gain = nearest_gain(dev, gain);
+		verbose_gain_set(dev, gain);
 	}
+
 	if(sideband)
 	{
 		rtlsdr_set_tuner_sideband(dev, sideband);
@@ -588,9 +584,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "activated bias-T on GPIO PIN 0\n");
 
 	/* Reset endpoint before we start reading from it (mandatory) */
-	r = rtlsdr_reset_buffer(dev);
-	if (r < 0)
-		fprintf(stderr, "WARNING: Failed to reset buffers.\n");
+	verbose_reset_buffer(dev);
 
 	pthread_mutex_init(&exit_cond_lock, NULL);
 	pthread_mutex_init(&ll_mutex, NULL);
@@ -598,8 +592,19 @@ int main(int argc, char **argv)
 	pthread_cond_init(&cond, NULL);
 	pthread_cond_init(&exit_cond, NULL);
 
-	ctrl_thread_data_t ctrldata = {.dev = dev, .port = port + 1, .wait = 500000, .addr = addr, .pDoExit = &do_exit_thrd_ctrl };
-	pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, (void *)(&ctrldata));
+	if ( port_resp == 1 )
+		port_resp = port + 1;
+	ctrldata.port = port_resp;
+	ctrldata.dev = dev;
+	ctrldata.addr = addr;
+	ctrldata.wait = 500000; /* = 0.5 sec */
+	ctrldata.report_i2c = report_i2c;
+	ctrldata.pDoExit = &do_exit_thrd_ctrl;
+	if ( port_resp ) {
+		fprintf(stderr, "activating Response channel on port %d with %s I2C reporting\n"
+			, port_resp, (report_i2c ? "active" : "inactive") );
+		pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, &ctrldata);
+	}
 
 	memset(&local,0,sizeof(local));
 	local.sin_family = AF_INET;

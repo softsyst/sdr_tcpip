@@ -25,19 +25,15 @@ if(NOT WIN32)
 RTLSDR_APPEND_SRCS(
     librtlsdr.c
     tuner_e4k.c
-    tuner_fc0012.c
-    tuner_fc0013.c
+    tuner_fc001x.c
     tuner_fc2580.c
     tuner_r82xx.c
-    rtlsdr_rpc.c
-    rtlsdr_rpc_msg.c
 )
 else()
 RTLSDR_APPEND_SRCS(
     librtlsdr.c
     tuner_e4k.c
-    tuner_fc0012.c
-    tuner_fc0013.c
+    tuner_fc001x.c
     tuner_fc2580.c
     tuner_r82xx.c
 )
@@ -47,7 +43,7 @@ endif()
 # Set up Windows DLL resource files
 ########################################################################
 IF(MSVC)
-    include(${CMAKE_SOURCE_DIR}/cmake/Modules/Version.cmake)
+    include(${PROJECT_SOURCE_DIR}/cmake/Modules/Version.cmake)
 
     configure_file(
         ${CMAKE_CURRENT_SOURCE_DIR}/rtlsdr.rc.in
@@ -117,12 +113,7 @@ add_executable(rtl_ir rtl_ir.c)
 add_executable(rtl_eeprom rtl_eeprom.c)
 add_executable(rtl_adsb rtl_adsb.c)
 add_executable(rtl_power rtl_power.c)
-if (NOT WIN32)
-    add_executable(rtl_rpcd rtl_rpcd.c rtlsdr_rpc_msg.c)
-    set(INSTALL_TARGETS rtlsdr_shared rtlsdr_static rtl_sdr rtl_tcp rtl_udp rtl_test rtl_fm rtl_ir rtl_eeprom rtl_adsb rtl_power rtl_rpcd)
-else()
-    set(INSTALL_TARGETS rtlsdr_shared rtlsdr_static rtl_sdr rtl_tcp rtl_udp rtl_test rtl_fm rtl_ir rtl_eeprom rtl_adsb rtl_power)
-endif()
+set(INSTALL_TARGETS rtlsdr_shared rtlsdr_static rtl_sdr rtl_tcp rtl_udp rtl_test rtl_fm rtl_ir rtl_eeprom rtl_adsb rtl_power)
 
 target_link_libraries(rtl_sdr ${RTLSDR_TOOL_LIB} convenience_static
     ${LIBUSB_LIBRARIES}
@@ -160,19 +151,13 @@ target_link_libraries(rtl_power ${RTLSDR_TOOL_LIB} convenience_static
     ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
-if(NOT WIN32)
-target_link_libraries(rtl_rpcd ${RTLSDR_TOOL_LIB} convenience_static
-    ${LIBUSB_LIBRARIES}
-    ${CMAKE_THREAD_LIBS_INIT}
-)
-endif()
 
 if(UNIX)
 target_link_libraries(rtl_fm m)
 target_link_libraries(rtl_ir m)
 target_link_libraries(rtl_adsb m)
 target_link_libraries(rtl_power m)
-if(APPLE)
+if(APPLE OR CMAKE_SYSTEM MATCHES "OpenBSD")
     target_link_libraries(rtl_test m)
 else()
     target_link_libraries(rtl_test m rt)

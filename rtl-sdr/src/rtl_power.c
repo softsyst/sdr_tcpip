@@ -52,7 +52,6 @@
 #include <fcntl.h>
 #include <io.h>
 #include "getopt/getopt.h"
-#define usleep(x) Sleep(x/1000)
 #if defined(_MSC_VER) && (_MSC_VER < 1800)
 #define round(x) (x > 0.0 ? floor(x + 0.5): ceil(x - 0.5))
 #endif
@@ -765,7 +764,7 @@ int main(int argc, char **argv)
 	struct sigaction sigact;
 #endif
 	char *filename = NULL;
-	int i, length, r, opt, wb_mode = 0;
+	int i, length, r, opt = 0;
 	int f_set = 0;
 	int gain = AUTO_GAIN; // tenths of a dB
 	int dev_index = 0;

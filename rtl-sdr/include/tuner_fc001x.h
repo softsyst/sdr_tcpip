@@ -1,5 +1,5 @@
 /*
- * Fitipower FC0012 tuner driver
+ * Fitipower FC0012/FC0013 tuner driver
  *
  * Copyright (C) 2012 Hans-Frieder Vogt <hfvogt@gmx.net>
  *
@@ -22,17 +22,26 @@
  *
  */
 
-#ifndef _FC0012_H_
-#define _FC0012_H_
+#ifndef _FC001X_H_
+#define _FC001X_H_
 
-#define FC0012_I2C_ADDR		0xc6
-#define FC0012_CHECK_ADDR	0x00
+#define FC001X_I2C_ADDR		0xc6
+#define FC001X_CHECK_ADDR	0x00
 #define FC0012_CHECK_VAL	0xa1
+#define FC0013_CHECK_VAL	0xa3
 
 int fc0012_init(void *dev);
-int fc0012_set_params(void *dev, uint32_t freq, uint32_t bandwidth);
+int fc0013_init(void *dev);
+int fc0012_set_freq(void *dev, uint32_t freq);
+int fc0013_set_freq(void *dev, uint32_t freq);
+//int fc001x_set_params(void *dev, uint32_t freq, uint32_t bandwidth, enum rtlsdr_tuner tuner_type);
+int fc001x_set_gain_mode(void *dev, int manual);
 int fc0012_set_gain(void *dev, int gain);
-int fc0012_set_i2c_register(void *dev, unsigned i2c_register, unsigned data);
-int fc0012_get_i2c_register(void *dev, unsigned char* data, int len);
+int fc0013_set_gain(void *dev, int gain);
+int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply);
+int fc001x_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, unsigned mask);
+int fc0012_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength);
+int fc0013_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength);
+int fc001x_exit(void *dev);
 
 #endif

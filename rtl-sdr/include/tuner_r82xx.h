@@ -36,8 +36,6 @@
 
 #define REG_SHADOW_START	5
 #define NUM_REGS			32
-#define NUM_IMR				5
-#define IMR_TRIAL			9
 
 #define VER_NUM				49
 
@@ -69,17 +67,15 @@ struct r82xx_config {
 	uint8_t i2c_addr;
 	uint32_t xtal;
 	enum r82xx_chip rafael_chip;
-	unsigned int max_i2c_msg_len;
 	int use_predetect;
 };
 
 struct r82xx_priv {
-	struct r82xx_config		*cfg;
-
+	const struct r82xx_config	*cfg;
 	uint8_t						regs[NUM_REGS];
 	uint8_t						buf[NUM_REGS + 1];
 	enum r82xx_xtal_cap_value	xtal_cap_sel;
-	uint16_t					pll;	/* kHz */
+	uint16_t					pll;	// kHz
 	uint32_t					int_freq;
 	uint8_t						fil_cal_code;
 	uint8_t						input;
@@ -87,10 +83,9 @@ struct r82xx_priv {
 	int							init_done;
 	int							sideband;
 
-	/* Store current mode */
-	uint32_t				delsys;
+	// Store current mode
 	enum r82xx_tuner_type	type;
-	uint32_t				bw;	/* in MHz */
+	uint32_t				bw;	// in MHz
 	void 					*rtl_dev;
 };
 
@@ -104,19 +99,13 @@ struct r82xx_freq_range {
 	uint8_t		xtal_cap0p;
 };
 
-enum r82xx_delivery_system {
-	SYS_UNDEFINED,
-	SYS_DVBT,
-	SYS_DVBT2,
-	SYS_ISDBT,
-};
-
 int r82xx_standby(struct r82xx_priv *priv);
 int r82xx_init(struct r82xx_priv *priv);
 int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq);
-int r82xx_set_gain(struct r82xx_priv *priv, int set_manual_gain, int gain);
+int r82xx_set_gain(struct r82xx_priv *priv, int gain);
+int r82xx_set_gain_mode(struct r82xx_priv *priv, int set_manual_gain);
 int r82xx_set_bandwidth(struct r82xx_priv *priv, int bandwidth,  uint32_t * applied_bw, int apply);
 int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned data, unsigned mask);
-int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int len);
+int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *len, int *strength);
 int r82xx_set_sideband(struct r82xx_priv *priv, int sideband);
 #endif
