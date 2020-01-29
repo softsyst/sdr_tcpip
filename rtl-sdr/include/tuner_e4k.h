@@ -41,7 +41,7 @@ enum e4k_reg {
 	E4K_REG_SYNTH3			= 0x09,
 	E4K_REG_SYNTH4			= 0x0a,
 	E4K_REG_SYNTH5			= 0x0b,
-	E4K_REG_SYNTH6			= 0x0c,
+	// gap
 	E4K_REG_SYNTH7			= 0x0d,
 	E4K_REG_SYNTH8			= 0x0e,
 	E4K_REG_SYNTH9			= 0x0f,
@@ -94,8 +94,10 @@ enum e4k_reg {
 	E4K_REG_PWM3			= 0x76,
 	E4K_REG_PWM4			= 0x77,
 	E4K_REG_BIAS			= 0x78,
+	// gap
 	E4K_REG_CLKOUT_PWDN		= 0x7a,
 	E4K_REG_CHFILT_CALIB	= 0x7b,
+	// gap
 	E4K_REG_I2C_REG_ADDR	= 0x7d,
 	// FIXME
 };
@@ -105,7 +107,7 @@ enum e4k_reg {
 #define E4K_MASTER1_POR_DET		(1 << 2)
 
 #define E4K_SYNTH1_PLL_LOCK		(1 << 0)
-#define E4K_SYNTH1_BAND_SHIF	1
+#define E4K_SYNTH1_BAND_SHIF	 1
 
 #define E4K_SYNTH7_3PHASE_EN	(1 << 3)
 
@@ -162,23 +164,6 @@ enum e4k_band {
 	E4K_BAND_L		= 3,
 };
 
-enum e4k_mixer_filter_bw {
-	E4K_F_MIX_BW_27M	= 0,
-	E4K_F_MIX_BW_4M6	= 8,
-	E4K_F_MIX_BW_4M2	= 9,
-	E4K_F_MIX_BW_3M8	= 10,
-	E4K_F_MIX_BW_3M4	= 11,
-	E4K_F_MIX_BW_3M		= 12,
-	E4K_F_MIX_BW_2M7	= 13,
-	E4K_F_MIX_BW_2M3	= 14,
-	E4K_F_MIX_BW_1M9	= 15,
-};
-
-enum e4k_if_filter {
-	E4K_IF_FILTER_MIX,
-	E4K_IF_FILTER_CHAN,
-	E4K_IF_FILTER_RC
-};
 struct e4k_pll_params {
 	uint32_t fosc;
 	uint32_t intended_flo;
@@ -188,6 +173,13 @@ struct e4k_pll_params {
 	uint8_t r;
 	uint8_t r_idx;
 	uint8_t threephase;
+};
+
+/* structure describing a field in a register */
+struct reg_field {
+	uint8_t reg;
+	uint8_t shift;
+	uint8_t width;
 };
 
 struct e4k_state {
@@ -201,22 +193,11 @@ struct e4k_state {
 int e4k_init(struct e4k_state *e4k);
 int e4k_standby(struct e4k_state *e4k, int enable);
 int e4k_if_gain_set(struct e4k_state *e4k, uint8_t stage, int8_t value);
-int e4k_mixer_gain_set(struct e4k_state *e4k, int8_t value);
-int e4k_commonmode_set(struct e4k_state *e4k, int8_t value);
 int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq);
-int e4k_tune_params(struct e4k_state *e4k, struct e4k_pll_params *p);
-uint32_t e4k_compute_pll_params(struct e4k_pll_params *oscp, uint32_t fosc, uint32_t intended_flo);
-int e4k_if_filter_bw_get(struct e4k_state *e4k, enum e4k_if_filter filter);
-int e4k_if_filter_bw_set(struct e4k_state *e4k, enum e4k_if_filter filter,
-		         uint32_t bandwidth);
-int e4k_if_filter_chan_enable(struct e4k_state *e4k, int on);
-int e4k_rf_filter_set(struct e4k_state *e4k);
-
-int e4k_manual_dc_offset(struct e4k_state *e4k, int8_t iofs, int8_t irange, int8_t qofs, int8_t qrange);
-int e4k_dc_offset_calibrate(struct e4k_state *e4k);
-int e4k_dc_offset_gen_table(struct e4k_state *e4k);
-
-int e4k_set_lna_gain(struct e4k_state *e4k, int32_t gain);
+int e4k_set_bandwidth(struct e4k_state *e4k, int bw, uint32_t *applied_bw, int apply);
 int e4k_enable_manual_gain(struct e4k_state *e4k, uint8_t manual);
-int e4k_set_enh_gain(struct e4k_state *e4k, int32_t gain);
+int e4k_set_gain(struct e4k_state *e4k, int gain);
+int e4k_set_i2c_register(struct e4k_state *e4k, unsigned i2c_register, unsigned data, unsigned mask);
+int e4k_get_i2c_register(struct e4k_state *e4k, uint8_t *data, int *len, int *strength);
+const int *e4k_get_gains(int *len);
 #endif /* _E4K_TUNER_H */

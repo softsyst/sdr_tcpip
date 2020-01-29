@@ -43,5 +43,6 @@ int fc001x_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, uns
 int fc0012_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength);
 int fc0013_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength);
 int fc001x_exit(void *dev);
+const int *fc001x_get_gains(int *len);
 
 #endif

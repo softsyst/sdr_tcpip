@@ -27,11 +27,9 @@
 #include <string.h>
 #include <stdio.h>
 
-#include <reg_field.h>
 #include <tuner_e4k.h>
 #include <rtlsdr_i2c.h>
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 /* If this is defined, the limits are somewhat relaxed compared to what the
  * vendor claims is possible */
@@ -56,6 +54,38 @@ static const uint8_t width2mask[] = {
 /***********************************************************************
  * Register Access */
 
+static int e4k_write_array(struct e4k_state *e4k, uint8_t reg, const uint8_t *val,
+			   		unsigned int len)
+{
+	uint8_t buf[MAX_I2C_MSG_LEN];
+	int rc, size, pos = 0;
+
+	do {
+		if (len > MAX_I2C_MSG_LEN - 1)
+			size = MAX_I2C_MSG_LEN - 1;
+		else
+			size = len;
+
+		/* Fill I2C buffer */
+		buf[0] = reg;
+		memcpy(&buf[1], &val[pos], size);
+
+		rc = rtlsdr_i2c_write_fn(e4k->rtl_dev, e4k->i2c_addr, buf, size + 1);
+		if (rc != size + 1) {
+			fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
+				   __FUNCTION__, rc, reg, size);
+			if (rc < 0)
+				return rc;
+			return -1;
+		}
+		reg += size;
+		len -= size;
+		pos += size;
+	} while (len > 0);
+
+	return 0;
+}
+
 /*! \brief Write a register of the tuner chip
  *  \param[in] e4k reference to the tuner
  *  \param[in] reg number of the register
@@ -64,13 +94,36 @@ static const uint8_t width2mask[] = {
  */
 static int e4k_reg_write(struct e4k_state *e4k, uint8_t reg, uint8_t val)
 {
-	int r;
-	uint8_t data[2];
-	data[0] = reg;
-	data[1] = val;
+	return e4k_write_array(e4k, reg, &val, 1);
+}
 
-	r = rtlsdr_i2c_write_fn(e4k->rtl_dev, e4k->i2c_addr, data, 2);
-	return r == 2 ? 0 : -1;
+static int e4k_read_array(struct e4k_state *e4k, uint8_t reg, uint8_t *val, unsigned int len)
+{
+	int rc, size, pos = 0;
+
+	do {
+		if (len > MAX_I2C_MSG_LEN)
+			size = MAX_I2C_MSG_LEN;
+		else
+			size = len;
+
+		rc = rtlsdr_i2c_write_fn(e4k->rtl_dev, e4k->i2c_addr, &reg, 1);
+		if (rc < 1)
+			return rc;
+		rc = rtlsdr_i2c_read_fn(e4k->rtl_dev, e4k->i2c_addr, val+pos, size);
+		if (rc != size) {
+			fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
+				   __FUNCTION__, rc, reg, size);
+			if (rc < 0)
+				return rc;
+			return -1;
+		}
+		reg += size;
+		len -= size;
+		pos += size;
+	} while (len > 0);
+
+	return 0;
 }
 
 /*! \brief Read a register of the tuner chip
@@ -107,44 +160,6 @@ static int e4k_reg_set_mask(struct e4k_state *e4k, uint8_t reg,
 		return 0;
 
 	return e4k_reg_write(e4k, reg, (tmp & ~mask) | (val & mask));
-}
-
-/*! \brief Write a given field inside a register
- *  \param[in] e4k reference to the tuner
- *  \param[in] field structure describing the field
- *  \param[in] val value to be written
- *  \returns 0 on success, negative in case of error
- */
-static int e4k_field_write(struct e4k_state *e4k, const struct reg_field *field, uint8_t val)
-{
-	int rc;
-	uint8_t mask;
-
-	rc = e4k_reg_read(e4k, field->reg);
-	if (rc < 0)
-		return rc;
-
-	mask = width2mask[field->width] << field->shift;
-
-	return e4k_reg_set_mask(e4k, field->reg, mask, val << field->shift);
-}
-
-/*! \brief Read a given field inside a register
- *  \param[in] e4k reference to the tuner
- *  \param[in] field structure describing the field
- *  \returns positive value of the field, negative in case of error
- */
-static int e4k_field_read(struct e4k_state *e4k, const struct reg_field *field)
-{
-	int rc;
-
-	rc = e4k_reg_read(e4k, field->reg);
-	if (rc < 0)
-		return rc;
-
-	rc = (rc >> field->shift) & width2mask[field->width];
-
-	return rc;
 }
 
 /***********************************************************************
@@ -211,7 +226,7 @@ static int choose_rf_filter(enum e4k_band band, uint32_t freq)
 }
 
 /* \brief Automatically select apropriate RF filter based on e4k state */
-int e4k_rf_filter_set(struct e4k_state *e4k)
+static int e4k_rf_filter_set(struct e4k_state *e4k)
 {
 	int rc;
 
@@ -222,118 +237,38 @@ int e4k_rf_filter_set(struct e4k_state *e4k)
 	return e4k_reg_set_mask(e4k, E4K_REG_FILT1, 0xF, rc);
 }
 
-/* Mixer Filter */
-static const uint32_t mix_filter_bw[] = {
-	KHZ(27000), KHZ(27000), KHZ(27000), KHZ(27000),
-	KHZ(27000), KHZ(27000), KHZ(27000), KHZ(27000),
-	KHZ(4600), KHZ(4200), KHZ(3800), KHZ(3400),
-	KHZ(3300), KHZ(2700), KHZ(2300), KHZ(1900)
-};
+int e4k_set_bandwidth(struct e4k_state *e4k, int bw, uint32_t *applied_bw, int apply)
+{
+	uint8_t data[2];
 
-/* IF RC Filter */
-static const uint32_t ifrc_filter_bw[] = {
-	KHZ(21400), KHZ(21000), KHZ(17600), KHZ(14700),
-	KHZ(12400), KHZ(10600), KHZ(9000), KHZ(7700),
-	KHZ(6400), KHZ(5300), KHZ(4400), KHZ(3400),
-	KHZ(2600), KHZ(1800), KHZ(1200), KHZ(1000)
-};
-
-/* IF Channel Filter */
-static const uint32_t ifch_filter_bw[] = {
-	KHZ(5500), KHZ(5300), KHZ(5000), KHZ(4800),
-	KHZ(4600), KHZ(4400), KHZ(4300), KHZ(4100),
-	KHZ(3900), KHZ(3800), KHZ(3700), KHZ(3600),
-	KHZ(3400), KHZ(3300), KHZ(3200), KHZ(3100),
-	KHZ(3000), KHZ(2950), KHZ(2900), KHZ(2800),
-	KHZ(2750), KHZ(2700), KHZ(2600), KHZ(2550),
-	KHZ(2500), KHZ(2450), KHZ(2400), KHZ(2300),
-	KHZ(2280), KHZ(2240), KHZ(2200), KHZ(2150)
-};
-
-static const uint32_t *if_filter_bw[] = {
-	mix_filter_bw,
-	ifch_filter_bw,
-	ifrc_filter_bw,
-};
-
-static const uint32_t if_filter_bw_len[] = {
-	ARRAY_SIZE(mix_filter_bw),
-	ARRAY_SIZE(ifch_filter_bw),
-	ARRAY_SIZE(ifrc_filter_bw),
-};
-
-static const struct reg_field if_filter_fields[] = {
+	if (bw < 2200000)
 	{
-		E4K_REG_FILT2, 4, 4,
-	},
-	{
-		E4K_REG_FILT3, 0, 5,
-	},
-	{
-		E4K_REG_FILT2, 0, 4,
+		*applied_bw = 2000000;
+		data[0] = 0xff;
 	}
-};
+	else if (bw < 3000000)
+	{
+		*applied_bw = 2400000;
+		data[0] = 0xfe;
+	}
+	else if (bw < 3950000)
+	{
+		*applied_bw = 3600000;
+		data[0] = 0xfd;
+	}
+	else
+	{
+		*applied_bw = 4300000;
+		data[0] = 0xfc;
+	}
+	if(!apply)
+		return 0;
 
-static int find_if_bw(enum e4k_if_filter filter, uint32_t bw)
-{
-	if (filter >= ARRAY_SIZE(if_filter_bw))
-		return -EINVAL;
-
-	return closest_arr_idx(if_filter_bw[filter],
-			       if_filter_bw_len[filter], bw);
-}
-
-/*! \brief Set the filter band-width of any of the IF filters
- *  \param[in] e4k reference to the tuner chip
- *  \param[in] filter filter to be configured
- *  \param[in] bandwidth bandwidth to be configured
- *  \returns positive actual filter band-width, negative in case of error
- */
-int e4k_if_filter_bw_set(struct e4k_state *e4k, enum e4k_if_filter filter,
-		         uint32_t bandwidth)
-{
-	int bw_idx;
-	const struct reg_field *field;
-
-	if (filter >= ARRAY_SIZE(if_filter_bw))
-		return -EINVAL;
-
-	bw_idx = find_if_bw(filter, bandwidth);
-
-	field = &if_filter_fields[filter];
-
-	return e4k_field_write(e4k, field, bw_idx);
-}
-
-/*! \brief Enables / Disables the channel filter
- *  \param[in] e4k reference to the tuner chip
- *  \param[in] on 1=filter enabled, 0=filter disabled
- *  \returns 0 success, negative errors
- */
-int e4k_if_filter_chan_enable(struct e4k_state *e4k, int on)
-{
-	return e4k_reg_set_mask(e4k, E4K_REG_FILT3, E4K_FILT3_DISABLE,
-	                        on ? 0 : E4K_FILT3_DISABLE);
-}
-
-int e4k_if_filter_bw_get(struct e4k_state *e4k, enum e4k_if_filter filter)
-{
-	const uint32_t *arr;
-	int rc;
-	const struct reg_field *field;
-
-	if (filter >= ARRAY_SIZE(if_filter_bw))
-		return -EINVAL;
-
-	field = &if_filter_fields[filter];
-
-	rc = e4k_field_read(e4k, field);
-	if (rc < 0)
-		return rc;
-
-	arr = if_filter_bw[filter];
-
-	return arr[rc];
+	/* Mixer Filter 1900 kHz (0.2 dB Bandwidth) */
+	/* IF RC Filter = 2000, 2400, 3600 or 5200 kHz */
+	/* IF Channel Filter 4300 kHz */
+	data[1] = 0x1f;
+	return e4k_write_array(e4k, E4K_REG_FILT2, data, 2);
 }
 
 
@@ -470,7 +405,7 @@ static int e4k_band_set(struct e4k_state *e4k, enum e4k_band band)
  *  \returns actual PLL frequency, as close as possible to intended_flo,
  *	     0 in case of error
  */
-uint32_t e4k_compute_pll_params(struct e4k_pll_params *oscp, uint32_t fosc, uint32_t intended_flo)
+static uint32_t e4k_compute_pll_params(struct e4k_pll_params *oscp, uint32_t fosc, uint32_t intended_flo)
 {
 	uint32_t i;
 	uint8_t r = 2;
@@ -522,18 +457,17 @@ uint32_t e4k_compute_pll_params(struct e4k_pll_params *oscp, uint32_t fosc, uint
 	return flo;
 }
 
-int e4k_tune_params(struct e4k_state *e4k, struct e4k_pll_params *p)
+static int e4k_tune_params(struct e4k_state *e4k, struct e4k_pll_params *p)
 {
+	uint8_t data[3];
 	/* program R + 3phase/2phase */
 	e4k_reg_write(e4k, E4K_REG_SYNTH7, p->r_idx);
-	/* program Z */
-	e4k_reg_write(e4k, E4K_REG_SYNTH3, p->z);
-	/* program X */
-	e4k_reg_write(e4k, E4K_REG_SYNTH4, p->x & 0xff);
-	e4k_reg_write(e4k, E4K_REG_SYNTH5, p->x >> 8);
+	data[0] = p->z; /* program Z */
+	data[1] = p->x & 0xff; /* program X */
+	data[2] = p->x >> 8;
+	e4k_write_array(e4k, E4K_REG_SYNTH3, data, 3);
 
 	/* we're in auto calibration mode, so there's no need to trigger it */
-
 	memcpy(&e4k->vco, p, sizeof(e4k->vco));
 
 	/* set the band */
@@ -596,7 +530,7 @@ static const int8_t if_stage23_gain[] = {
 };
 
 static const int8_t if_stage4_gain[] = {
-	0, 1, 2, 2
+	0, 1, 2, 3
 };
 
 static const int8_t if_stage56_gain[] = {
@@ -633,73 +567,21 @@ static const struct reg_field if_stage_gain_regs[] = {
 	{ E4K_REG_GAIN4, 3, 3 }
 };
 
-static const int32_t lnagain[] = {
-	-50,	0,
-	-25,	1,
-	0,		4,
-	25,		5,
-	50,		6,
-	75,		7,
-	100,	8,
-	125,	9,
-	150,	10,
-	175,	11,
-	200,	12,
-	250,	13,
-	300,	14,
-};
-
-static const int32_t enhgain[] = {
-	10, 30, 50, 70
-};
-
-int e4k_set_lna_gain(struct e4k_state *e4k, int32_t gain)
-{
-	uint32_t i;
-	for(i = 0; i < ARRAY_SIZE(lnagain)/2; ++i) {
-		if(lnagain[i*2] == gain) {
-			e4k_reg_set_mask(e4k, E4K_REG_GAIN1, 0xf, lnagain[i*2+1]);
-			return gain;
-		}
-	}
-	return -EINVAL;
-}
-
-int e4k_set_enh_gain(struct e4k_state *e4k, int32_t gain)
-{
-	uint32_t i;
-	for(i = 0; i < ARRAY_SIZE(enhgain); ++i) {
-		if(enhgain[i] == gain) {
-			e4k_reg_set_mask(e4k, E4K_REG_AGC11, 0x7, E4K_AGC11_LNA_GAIN_ENH | (i << 1));
-			return gain;
-		}
-	}
-	e4k_reg_set_mask(e4k, E4K_REG_AGC11, 0x7, 0);
-
-	/* special case: 0 = off*/
-	if(0 == gain)
-		return 0;
-	else
-		return -EINVAL;
-}
-
 int e4k_enable_manual_gain(struct e4k_state *e4k, uint8_t manual)
 {
 	if (manual) {
-		/* Set LNA mode to manual */
-		e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK, E4K_AGC_MOD_SERIAL);
+		/* Set IF mode to manual */
+		e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK, E4K_AGC_MOD_IF_SERIAL_LNA_AUTON);
 
 		/* Set Mixer Gain Control to manual */
 		e4k_reg_set_mask(e4k, E4K_REG_AGC7, E4K_AGC7_MIX_GAIN_AUTO, 0);
 	} else {
-		/* Set LNA mode to auto */
-		e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK, E4K_AGC_MOD_IF_SERIAL_LNA_AUTON);
+		/* Set IF mode to auto */
+		e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK, E4K_AGC_MOD_IF_DIG_LNA_AUTON);
+
 		/* Set Mixer Gain Control to auto */
 		e4k_reg_set_mask(e4k, E4K_REG_AGC7, E4K_AGC7_MIX_GAIN_AUTO, 1);
-
-		e4k_reg_set_mask(e4k, E4K_REG_AGC11, 0x7, 0);
 	}
-
 	return 0;
 }
 
@@ -743,7 +625,7 @@ int e4k_if_gain_set(struct e4k_state *e4k, uint8_t stage, int8_t value)
 	return e4k_reg_set_mask(e4k, field->reg, mask, rc << field->shift);
 }
 
-int e4k_mixer_gain_set(struct e4k_state *e4k, int8_t value)
+static int e4k_mixer_gain_set(struct e4k_state *e4k, int8_t value)
 {
 	uint8_t bit;
 
@@ -761,7 +643,7 @@ int e4k_mixer_gain_set(struct e4k_state *e4k, int8_t value)
 	return e4k_reg_set_mask(e4k, E4K_REG_GAIN2, 1, bit);
 }
 
-int e4k_commonmode_set(struct e4k_state *e4k, int8_t value)
+static int e4k_commonmode_set(struct e4k_state *e4k, int8_t value)
 {
 	if(value < 0)
 		return -EINVAL;
@@ -774,7 +656,7 @@ int e4k_commonmode_set(struct e4k_state *e4k, int8_t value)
 /***********************************************************************
  * DC Offset */
 
-int e4k_manual_dc_offset(struct e4k_state *e4k, int8_t iofs, int8_t irange, int8_t qofs, int8_t qrange)
+static int e4k_manual_dc_offset(struct e4k_state *e4k, int8_t iofs, int8_t irange, int8_t qofs, int8_t qrange)
 {
 	int res;
 
@@ -802,7 +684,7 @@ int e4k_manual_dc_offset(struct e4k_state *e4k, int8_t iofs, int8_t irange, int8
 /*! \brief Perform a DC offset calibration right now
  *  \param [e4k] handle to the tuner chip
  */
-int e4k_dc_offset_calibrate(struct e4k_state *e4k)
+static int e4k_dc_offset_calibrate(struct e4k_state *e4k)
 {
 	/* make sure the DC range detector is enabled */
 	e4k_reg_set_mask(e4k, E4K_REG_DC5, E4K_DC5_RANGE_DET_EN, E4K_DC5_RANGE_DET_EN);
@@ -830,7 +712,7 @@ static const struct gain_comb dc_gain_comb[] = {
 
 #define TO_LUT(offset, range)	(offset | (range << 6))
 
-int e4k_dc_offset_gen_table(struct e4k_state *e4k)
+static int e4k_dc_offset_gen_table(struct e4k_state *e4k)
 {
 	uint32_t i;
 
@@ -882,37 +764,22 @@ int e4k_dc_offset_gen_table(struct e4k_state *e4k)
 /***********************************************************************
  * Standby */
 
-/*! \brief Enable/disable standby mode
+/* Enable/disable standby mode
  */
 int e4k_standby(struct e4k_state *e4k, int enable)
 {
 	e4k_reg_set_mask(e4k, E4K_REG_MASTER1, E4K_MASTER1_NORM_STBY,
 			 enable ? 0 : E4K_MASTER1_NORM_STBY);
-
 	return 0;
 }
 
 /***********************************************************************
  * Initialization */
 
-static int magic_init(struct e4k_state *e4k)
-{
-	e4k_reg_write(e4k, 0x7e, 0x01);
-	e4k_reg_write(e4k, 0x7f, 0xfe);
-	e4k_reg_write(e4k, 0x82, 0x00);
-	e4k_reg_write(e4k, 0x86, 0x50);	/* polarity A */
-	e4k_reg_write(e4k, 0x87, 0x20);
-	e4k_reg_write(e4k, 0x88, 0x01);
-	e4k_reg_write(e4k, 0x9f, 0x7f);
-	e4k_reg_write(e4k, 0xa0, 0x07);
-
-	return 0;
-}
-
-/*! \brief Initialize the E4K tuner
- */
 int e4k_init(struct e4k_state *e4k)
 {
+	uint8_t data[3];
+
 	/* make a dummy i2c read or write command, will not be ACKed! */
 	e4k_reg_read(e4k, 0);
 
@@ -931,7 +798,18 @@ int e4k_init(struct e4k_state *e4k)
 	e4k_reg_write(e4k, E4K_REG_CLKOUT_PWDN, 0x96);
 
 	/* Write some magic values into registers */
-	magic_init(e4k);
+	data[0] = 0x01;
+	data[1] = 0xfe;
+	e4k_write_array(e4k, 0x7e, data, 2);
+	e4k_reg_write(e4k, 0x82, 0x00);
+	data[0] = 0x51; /* polarity B */
+	data[1] = 0x20;
+	data[2] = 0x01;
+	e4k_write_array(e4k, 0x86, data, 3);
+	data[0] = 0x7f;
+	data[1] = 0x07;
+	e4k_write_array(e4k, 0x9f, data, 2);
+
 #if 0
 	/* Set common mode voltage a bit higher for more margin 850 mv */
 	e4k_commonmode_set(e4k, 4);
@@ -940,46 +818,34 @@ int e4k_init(struct e4k_state *e4k)
 	e4k_dc_offset_gen_table(e4k);
 
 	/* Enable time variant DC correction */
-	e4k_reg_write(e4k, E4K_REG_DCTIME1, 0x01);
-	e4k_reg_write(e4k, E4K_REG_DCTIME2, 0x01);
+	data[0] = 0x01;
+	data[1] = 0x01;
+	e4k_write_array(e4k, E4K_REG_DCTIME1, data, 2);
 #endif
 
 	/* Set LNA mode to manual */
-	e4k_reg_write(e4k, E4K_REG_AGC4, 0x10); /* High threshold */
-	e4k_reg_write(e4k, E4K_REG_AGC5, 0x04);	/* Low threshold */
-	e4k_reg_write(e4k, E4K_REG_AGC6, 0x1a);	/* LNA calib + loop rate */
+	data[0] = 32;   /* High threshold */
+	data[1] = 14;	/* Low threshold */
+	data[2] = 0x18;	/* LNA calib + loop rate */
+	e4k_write_array(e4k, E4K_REG_AGC4, data, 3);
 
-	e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK,
-		E4K_AGC_MOD_SERIAL);
+	/* Set Mixer Gain Control to auto */
+	e4k_reg_write(e4k, E4K_REG_AGC7, 0x15);
 
-	/* Set Mixer Gain Control to manual */
-	e4k_reg_set_mask(e4k, E4K_REG_AGC7, E4K_AGC7_MIX_GAIN_AUTO, 0);
-
-#if 0
 	/* Enable LNA Gain enhancement */
 	e4k_reg_set_mask(e4k, E4K_REG_AGC11, 0x7,
 			 E4K_AGC11_LNA_GAIN_ENH | (2 << 1));
 
 	/* Enable automatic IF gain mode switching */
 	e4k_reg_set_mask(e4k, E4K_REG_AGC8, 0x1, E4K_AGC8_SENS_LIN_AUTO);
-#endif
 
 	/* Use auto-gain as default */
 	e4k_enable_manual_gain(e4k, 0);
 
-	/* Select moderate gain levels */
-	e4k_if_gain_set(e4k, 1, 6);
-	e4k_if_gain_set(e4k, 2, 0);
-	e4k_if_gain_set(e4k, 3, 0);
-	e4k_if_gain_set(e4k, 4, 0);
-	e4k_if_gain_set(e4k, 5, 9);
-	e4k_if_gain_set(e4k, 6, 9);
-
 	/* Set the most narrow filter we can possibly use */
-	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_MIX, KHZ(1900));
-	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_RC, KHZ(1000));
-	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_CHAN, KHZ(2150));
-	e4k_if_filter_chan_enable(e4k, 1);
+	data[0] = 0xff;
+	data[1] = 0x1f;
+	e4k_write_array(e4k, E4K_REG_FILT2, data, 2);
 
 	/* Disable time variant DC correction and LUT */
 	e4k_reg_set_mask(e4k, E4K_REG_DC5, 0x03, 0);
@@ -988,3 +854,78 @@ int e4k_init(struct e4k_state *e4k)
 
 	return 0;
 }
+//sensitivity mode
+static const uint8_t e4k_reg21[] = {0,  0,   0,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1};
+static const uint8_t e4k_reg22[] = {0,  2,   4,0x20,0x22,0x24,0x21,0x23,0x25,0x27,0x2f,0x37,0x3f,0x3f,0x3f,0x3f,0x3f,0x3f,0x3f,0x3f,0x3f,0x7f};
+static const uint8_t e4k_reg23[] = {0,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   2,   3,   4,0x0c,0x14,0x1c,0x24,0x24};
+
+/*
+//linearity mode
+static const uint8_t e4k_reg21[] = {0,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   1,   1};
+static const uint8_t e4k_reg22[] = {0,  0,   0,   0,   0,   0,   0,   0,   0,   8,0x10,0x18,0x1a,0x1c,0x19,0x1b,0x1d,0x1f,0x7f,0x3d,0x3f,0x7f};
+static const uint8_t e4k_reg23[] = {0,  8,0x10,0x18,0x20,0x21,0x22,0x23,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24};
+*/
+/* all gain values are expressed in tenths of a dB */
+static const int     e4k_gains[] = {0, 30,  60,  90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 620};
+
+#define GAIN_CNT	(sizeof(e4k_gains) / sizeof(int))
+
+int e4k_set_gain(struct e4k_state *e4k, int gain)
+{
+	uint8_t data[3];
+	unsigned int i;
+
+	for (i = 0; i < GAIN_CNT; i++)
+		if ((e4k_gains[i] >= gain) || (i+1 == GAIN_CNT))
+			break;
+	data[0] = e4k_reg21[i];
+	data[1] = e4k_reg22[i];
+	data[2] = e4k_reg23[i];
+	return e4k_write_array(e4k, E4K_REG_GAIN2, data, 3);
+}
+
+const int *e4k_get_gains(int *len)
+{
+	*len = sizeof(e4k_gains);
+	return e4k_gains;
+}
+
+static const int lna_gain_table[] = {
+	-50, -25, -50, -25, 0, 25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 300
+};
+static const int mixer_gain_table[] = {
+	40, 120
+};
+
+static int e4k_get_signal_strength(uint8_t *data)
+{
+	int lna_gain = lna_gain_table[data[0x14] & 0xf];
+	int mixer_gain = mixer_gain_table[data[0x15] & 1];
+	int if_gain = if_stage1_gain[data[0x16] & 1];
+	if_gain += if_stage23_gain[(data[0x16] >> 1) & 3];
+	if_gain += if_stage23_gain[(data[0x16] >> 3) & 3];
+	if_gain += if_stage4_gain[(data[0x16] >> 5) & 3];
+	if_gain += if_stage56_gain[data[0x17] & 7];
+	if_gain += if_stage56_gain[(data[0x16] >> 3) & 7];
+	if_gain *= 10;
+	return 990 - if_gain - mixer_gain - lna_gain;
+}
+
+int e4k_set_i2c_register(struct e4k_state *e4k, unsigned i2c_register, unsigned data, unsigned mask)
+{
+	return e4k_reg_set_mask(e4k, i2c_register & 0xFF, mask & 0xff, data & 0xff);
+}
+
+int e4k_get_i2c_register(struct e4k_state *e4k, uint8_t *data, int *len, int *strength)
+{
+	int rc;
+
+	*len = 168;
+	*strength = 0;
+	rc = e4k_read_array(e4k, 0, data, *len);
+	if (rc < 0)
+		return rc;
+	*strength = e4k_get_signal_strength(data);
+	return 0;
+}
+

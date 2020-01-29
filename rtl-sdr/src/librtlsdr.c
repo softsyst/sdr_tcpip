@@ -1,3 +1,4 @@
+
 /*
  * rtl-sdr, turns your Realtek RTL2832 based DVB dongle into a SDR receiver
  * Copyright (C) 2012-2014 by Steve Markgraf <steve@steve-m.de>
@@ -48,7 +49,7 @@
 #endif
 
 /* two raised to the power of n */
-#define TWO_POW(n)		((double)(1ULL<<(n)))
+#define TWO_POW(n)	((double)(1ULL<<(n)))
 
 #include "rtl-sdr.h"
 #include "tuner_e4k.h"
@@ -68,6 +69,7 @@ typedef struct rtlsdr_tuner_iface {
 	int (*set_i2c_register)(void *, unsigned i2c_register, unsigned data /* byte */, unsigned mask /* byte */ );
 	int (*get_i2c_register)(void *, unsigned char *data, int *len, int *strength);
 	int (*set_sideband)(void *, int sideband);
+	const int *(*get_gains)(int *len);
 } rtlsdr_tuner_iface_t;
 
 enum rtlsdr_async_status {
@@ -146,7 +148,6 @@ struct rtlsdr_dev {
 	int verbose;
 };
 
-//static void rtlsdr_set_gpio_bit(rtlsdr_dev_t *dev, uint8_t gpio, int val);
 static int rtlsdr_set_if_freq(rtlsdr_dev_t *dev, uint32_t freq);
 static int rtlsdr_update_ds(rtlsdr_dev_t *dev, uint32_t freq);
 static int rtlsdr_set_spectrum_inversion(rtlsdr_dev_t *dev, int sideband);
@@ -167,36 +168,15 @@ int e4000_set_freq(void *dev, uint32_t freq) {
 	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
 	return e4k_tune_freq(&devt->e4k_s, freq);
 }
-
 int e4000_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply) {
-	int r = 0;
 	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
 	if(!apply)
 		return 0;
-
-	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_MIX, bw);
-	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_RC, bw);
-	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_CHAN, bw);
-
-	return r;
+	return e4k_set_bandwidth(&devt->e4k_s, bw, applied_bw, apply);
 }
-
 int e4000_set_gain(void *dev, int gain) {
 	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
-	int mixgain = (gain > 340) ? 12 : 4;
-#if 0
-	int enhgain = (gain - 420);
-#endif
-	if(e4k_set_lna_gain(&devt->e4k_s, min(300, gain - mixgain * 10)) == -EINVAL)
-		return -1;
-	if(e4k_mixer_gain_set(&devt->e4k_s, mixgain) == -EINVAL)
-		return -1;
-#if 0 /* enhanced mixer gain seems to have no effect */
-	if(enhgain >= 0)
-		if(e4k_set_enh_gain(&devt->e4k_s, enhgain) == -EINVAL)
-			return -1;
-#endif
-	return 0;
+	return e4k_set_gain(&devt->e4k_s, gain);
 }
 int e4000_set_if_gain(void *dev, int stage, int gain) {
 	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
@@ -206,19 +186,14 @@ int e4000_set_gain_mode(void *dev, int manual) {
 	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
 	return e4k_enable_manual_gain(&devt->e4k_s, manual);
 }
-
-int fc2580_init(void *dev) { return fc2580_Initialize(dev); }
-int fc2580_exit(void *dev) { return 0; }
-int _fc2580_set_freq(void *dev, uint32_t freq) {
-	return fc2580_SetRfFreqHz(dev, freq);
+int e4000_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, unsigned mask ) {
+	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
+	return e4k_set_i2c_register(&devt->e4k_s, i2c_register, data, mask);
 }
-int fc2580_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply) {
-	if(!apply)
-		return 0;
-	return fc2580_SetBandwidthMode(dev, 1);
+int e4000_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength) {
+	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
+	return e4k_get_i2c_register(&devt->e4k_s, data, len, strength);
 }
-int fc2580_set_gain(void *dev, int gain) { return 0; }
-int fc2580_set_gain_mode(void *dev, int manual) { return 0; }
 
 int r820t_init(void *dev) {
 	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
@@ -298,45 +273,46 @@ int r820t_set_sideband(void *dev, int sideband) {
 	return rtlsdr_set_center_freq(devt, devt->freq);
 }
 
-
 /* definition order must match enum rtlsdr_tuner */
 static rtlsdr_tuner_iface_t tuners[] = {
 	{
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL /* dummy for unknown tuners */
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL /* dummy for unknown tuners */
 	},
 	{
 		e4000_init, e4000_exit,
 		e4000_set_freq, e4000_set_bw, e4000_set_gain, e4000_set_if_gain,
-		e4000_set_gain_mode, NULL, NULL, NULL
+		e4000_set_gain_mode, e4000_set_i2c_register,
+		e4000_get_i2c_register, NULL, e4k_get_gains
 	},
 	{
 		fc0012_init, fc001x_exit,
 		fc0012_set_freq, fc001x_set_bw, fc0012_set_gain, NULL,
 		fc001x_set_gain_mode, fc001x_set_i2c_register,
-		fc0012_get_i2c_register, NULL
+		fc0012_get_i2c_register, NULL, fc001x_get_gains
 	},
 	{
 		fc0013_init, fc001x_exit,
 		fc0013_set_freq, fc001x_set_bw, fc0013_set_gain, NULL,
 		fc001x_set_gain_mode, fc001x_set_i2c_register,
-		fc0013_get_i2c_register, NULL
+		fc0013_get_i2c_register, NULL, fc001x_get_gains
 	},
 	{
 		fc2580_init, fc2580_exit,
-		_fc2580_set_freq, fc2580_set_bw, fc2580_set_gain, NULL,
-		fc2580_set_gain_mode, NULL, NULL, NULL
+		fc2580_set_freq, fc2580_set_bw, fc2580_set_gain, NULL,
+		fc2580_set_gain_mode, fc2580_set_i2c_register,
+		fc2580_get_i2c_register, NULL, NULL
 	},
 	{
 		r820t_init, r820t_exit,
 		r820t_set_freq, r820t_set_bw, r820t_set_gain, NULL,
 		r820t_set_gain_mode, r820t_set_i2c_register,
-		r820t_get_i2c_register, r820t_set_sideband
+		r820t_get_i2c_register, r820t_set_sideband, r82xx_get_gains
 	},
 	{
 		r820t_init, r820t_exit,
 		r820t_set_freq, r820t_set_bw, r820t_set_gain, NULL,
 		r820t_set_gain_mode, r820t_set_i2c_register,
-		r820t_get_i2c_register, r820t_set_sideband
+		r820t_get_i2c_register, r820t_set_sideband, r82xx_get_gains
 	},
 };
 
@@ -729,8 +705,6 @@ int rtlsdr_set_fir(rtlsdr_dev_t *dev)
 	return 0;
 }
 
-//#include "entfernt.c"
-
 void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 {
 	unsigned int i;
@@ -786,8 +760,6 @@ void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 
 	/* disable 4.096 MHz clock output on pin TP_CK0 */
 	rtlsdr_demod_write_reg(dev, 0, 0x0d, 0x83, 1);
-
-	rtlsdr_demod_write_reg(dev, 0, 0x20, 0x40, 1);//08.03.10
 
 	//AAGC_LOOP_GAIN
 	rtlsdr_demod_write_reg(dev, 1, 0xc7, 0x2c, 1);
@@ -1095,66 +1067,22 @@ enum rtlsdr_tuner rtlsdr_get_tuner_type(rtlsdr_dev_t *dev)
 	return dev->tuner_type;
 }
 
-static
-const int * get_tuner_gains(rtlsdr_dev_t *dev, int *pNum )
-{
-	/* all gain values are expressed in tenths of a dB */
-	static const int e4k_gains[] = { -10, 15, 40, 65, 90, 115, 140, 165, 190, 215,
-								240, 290, 340, 420 };
-	static const int fc001x_gains[] = { 0, 30, 65, 98, 134, 158, 194, 230, 268, 304,
-								340, 376, 394, 430, 466, 502, 538, 574, 610, 646,
-								682, 718, 754, 790, 826, 862, 898, 934 };
-	static const int fc2580_gains[] = { 0 /* no gain values */ };
-	static const int r82xx_gains[] = { 0, 35, 70, 105, 140, 175, 210, 245, 280, 315,
-						 		350, 385, 420, 455, 490, 525 };
-	static const int unknown_gains[] = { 0 /* no gain values */ };
-
-	const int *ptr = NULL;
-	int len = 0;
-
-	switch (dev->tuner_type) {
-	case RTLSDR_TUNER_E4000:
-		ptr = e4k_gains; len = sizeof(e4k_gains);
-		break;
-	case RTLSDR_TUNER_FC0012:
-	case RTLSDR_TUNER_FC0013:
-		ptr = fc001x_gains; len = sizeof(fc001x_gains);
-		break;
-	case RTLSDR_TUNER_FC2580:
-		ptr = fc2580_gains; len = sizeof(fc2580_gains);
-		break;
-	case RTLSDR_TUNER_R820T:
-	case RTLSDR_TUNER_R828D:
-		ptr = r82xx_gains; len = sizeof(r82xx_gains);
-		break;
-	default:
-		ptr = unknown_gains; len = sizeof(unknown_gains);
-		break;
-	}
-
-	*pNum = len / sizeof(int);
-	return ptr;
-}
-
 int rtlsdr_get_tuner_gains(rtlsdr_dev_t *dev, int *gains)
 {
-	const int *ptr = NULL;
-	int len = 0;
+	const int unknown_gains[] = { 0 /* no gain values */ };
+	const int *ptr = unknown_gains;
+	int len = sizeof(unknown_gains);
 
 	if (!dev)
 		return -1;
 
-	ptr = get_tuner_gains(dev, &len );
-	len = len * sizeof(int);
-
-	if (!gains) { /* no buffer provided, just return the count */
-		return len / sizeof(int);
-	} else {
-		if (len)
-			memcpy(gains, ptr, len);
-
-		return len / sizeof(int);
-	}
+	if (dev->tuner->get_gains)
+		ptr = dev->tuner->get_gains(&len);
+	if (!gains) /* no buffer provided, just return the count */
+		;
+	else
+		memcpy(gains, ptr, len);
+	return len / sizeof(int);
 }
 
 int rtlsdr_set_and_get_tuner_bandwidth(rtlsdr_dev_t *dev, uint32_t bw, uint32_t *applied_bw, int apply_bw )
@@ -1701,7 +1629,6 @@ int rtlsdr_get_index_by_serial(const char *serial)
 	return -3;
 }
 
-
 int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 {
 	int r;
@@ -1853,18 +1780,27 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 		fprintf(stderr, "Found Fitipower FC0012 tuner\n");
 		rtlsdr_set_gpio_output(dev, 6);
 		dev->tuner_type = RTLSDR_TUNER_FC0012;
-		rtlsdr_set_gpio_output(dev, 5);
-		rtlsdr_set_gpio_bit(dev, 5, 1);
-		rtlsdr_set_gpio_bit(dev, 5, 0);
 	}
 
 found:
-	//rtl2832_init(dev);
 	/* use the rtl clock value by default */
 	dev->tun_xtal = dev->rtl_xtal;
 	dev->tuner = &tuners[dev->tuner_type];
 
 	switch (dev->tuner_type) {
+	case RTLSDR_TUNER_FC2580:
+		dev->tun_xtal = FC2580_XTAL_FREQ;
+		break;
+	case RTLSDR_TUNER_E4000:
+	case RTLSDR_TUNER_FC0012:
+	case RTLSDR_TUNER_FC0013:
+		/* AGC up/down mode */
+		r = rtlsdr_demod_write_reg(dev, 1, 0xd7, 0x09, 1);//DVBT_EN_AGC_PGA
+		r = rtlsdr_demod_write_reg(dev, 1, 0xd8, 0x0c, 1);//DVBT_INTER_CNT_LEN
+		r = rtlsdr_demod_write_reg(dev, 1, 0xd9, 0x00, 1);//DVBT_THD_LOCK_UP
+		r = rtlsdr_demod_write_reg(dev, 1, 0xdb, 0x00, 1);//DVBT_THD_LOCK_DW
+		r = rtlsdr_demod_write_reg(dev, 1, 0xe6, 0x02, 1);//DVBT_GI_PGA_STATE
+		break;
 	case RTLSDR_TUNER_R828D:
 		dev->tun_xtal = R828D_XTAL_FREQ;
 		/* fall-through */
@@ -2327,7 +2263,7 @@ int rtlsdr_ir_query(rtlsdr_dev_t *d, uint8_t *buf, size_t buf_len)
 			ret = rtlsdr_write_reg_mask(d, init_tab[i].block, init_tab[i].reg,
 					init_tab[i].val, init_tab[i].mask);
 			if (ret < 0) {
-				fprintf(stderr, "write %lu reg %d %.4x %.2x %.2x failed\n", i, init_tab[i].block,
+				fprintf(stderr, "write %zu reg %d %.4x %.2x %.2x failed\n", i, init_tab[i].block,
 						init_tab[i].reg, init_tab[i].val, init_tab[i].mask);
 				goto err;
 			}

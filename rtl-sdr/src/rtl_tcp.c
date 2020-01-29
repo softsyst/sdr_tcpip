@@ -386,7 +386,7 @@ static void *command_worker(void *arg)
 			if(param)
 				param = 1;
 			ctrldata.report_i2c = param;  /* (de)activate reporting */
-			printf("Read Registers\n");
+			printf("read registers %d\n", param);
 			break;
 		default:
 			break;
@@ -450,9 +450,9 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.86 for QIRX, 21.12.2019\n\n");
+		   "Version 0.88 for QIRX, 25.01.2020\n\n");
 
-	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:p:us:vr:w:D:TP")) != -1) {
+	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:p:us:vr:w:D:TP:")) != -1) {
 		switch (opt) {
 		case 'a':
 			addr = optarg;
@@ -566,6 +566,8 @@ int main(int argc, char **argv)
 	if (gain == 0) {
 		 // Enable automatic gain
 		verbose_auto_gain(dev);
+		rtlsdr_set_agc_mode(dev, 1);
+
 	} else {
 		// Enable manual gain
 		gain = nearest_gain(dev, gain);
@@ -658,7 +660,7 @@ int main(int argc, char **argv)
 		r = rtlsdr_get_tuner_type(dev);
 		if (r >= 0)
 			dongle_info.tuner_type = htonl(r);
-
+			//dongle_info.tuner_type = htonl(RTLSDR_TUNER_FC0012);
 		r = rtlsdr_get_tuner_gains(dev, gains);
 		if (r >= 0)
 			dongle_info.tuner_gain_count = htonl(r);

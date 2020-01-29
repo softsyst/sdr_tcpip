@@ -1,4 +1,3 @@
-
 /*
  * Rafael Micro R820T/R828D driver
  *
@@ -31,7 +30,6 @@
 #include "rtlsdr_i2c.h"
 #include "tuner_r82xx.h"
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define MHZ(x)		((x)*1000*1000)
 #define KHZ(x)		((x)*1000)
 
@@ -159,10 +157,12 @@ R15		[7]						filter extension widest
 		[0]		GPIO			0
 ------------------------------------------------------------------------------------
 R16		[7:5] 	SEL_DIV			PLL to Mixer divider number control
-0x10							000: mixer in = vco out /2
+0x10							000: mixer in = vco out / 2
 								001: mixer in = vco out / 4
 								010: mixer in = vco out / 8
-								011: mixer in = vco out
+								011: mixer in = vco out / 16
+								100: mixer in = vco out / 32
+								101: mixer in = vco out / 64
 		[4] 	REFDIV			PLL Reference frequency Divider
 								0 -> fref=xtal_freq
 								1 -> fref=xta_freql / 2 (for Xtal >24MHz)
@@ -211,10 +211,11 @@ R23		[7:6] 	PW_LDO_D		PLL digital low drop out regulator supply current switch
 		[2:0]					100
 ------------------------------------------------------------------------------------
 R24		[7:6]					01
-		[5]						ring_se23
+		[5]						ring_seldev[0]
 0x18	[4] 					ring power
 								0: off, 1:on
 		[3:0]					n_ring
+								ring_vco = (16+n_ring)*8*pll_ref, n_ring = 9...14
 ------------------------------------------------------------------------------------
 R25		[7] 	PWD_RFFILT		RF Filter power
 0x19							0: off, 1:on
@@ -224,7 +225,15 @@ R25		[7] 	PWD_RFFILT		RF Filter power
 								0:agc=agc_in
 								1:agc=agc_in2
 		[3:2]					11
-		[1:0]					ring_seldiv
+		[1:0]					ring_seldiv[1:2]
+								000: ring_freq = ring_vco / 4
+								001: ring_freq = ring_vco / 6
+								010: ring_freq = ring_vco / 8
+								011: ring_freq = ring_vco / 12
+								100: ring_freq = ring_vco / 16
+								101: ring_freq = ring_vco / 24
+								110: ring_freq = ring_vco / 32
+								111: ring_freq = ring_vco / 48
 ------------------------------------------------------------------------------------
 R26		[7:6] 	RFMUX			Tracking Filter switch
 0x1A							00: TF on
@@ -560,7 +569,7 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *val, int len)
 }
 
 
-static void print_registers(struct r82xx_priv *priv)
+/*static void print_registers(struct r82xx_priv *priv)
 {
 	uint8_t data[5];
 	int rc;
@@ -575,7 +584,7 @@ static void print_registers(struct r82xx_priv *priv)
 	for(i=sizeof(data); i<32; i++)
 		printf("%02x ", r82xx_read_cache_reg(priv, i));
 	printf("\n");
-}
+}*/
 
 
 /*
@@ -654,6 +663,10 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	freq_khz = (freq + 500) / 1000;
 	pll_ref = priv->cfg->xtal;
 
+	if (priv->cfg->xtal > 24000000) {
+		pll_ref /= 2;
+		refdiv2 = 0x10;
+	}
 	rc = r82xx_write_reg_mask(priv, 0x10, refdiv2, 0x10);
 	if (rc < 0)
 		return rc;
@@ -720,7 +733,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	 */
 
 	vco_div = (pll_ref + 65536 * vco_freq) / (2 * pll_ref);
-        nint = (uint32_t) (vco_div / 65536);
+    nint = (uint32_t) (vco_div / 65536);
 	sdm = (uint32_t) (vco_div % 65536);
 
 #if 0
@@ -731,14 +744,14 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	}
 #endif
 
-	if (nint > ((128 / vco_power_ref) - 1)) {
+	if ((nint > 127) || (mix_div > 64)){
+	//if (nint > ((128 / vco_power_ref) - 1)) {
 		fprintf(stderr, "[R82XX] No valid PLL values for %u Hz!\n", freq);
 		return -1;
 	}
 
 	ni = (nint - 13) / 4;
 	si = nint - 4 * ni - 13;
-
 	rc = r82xx_write_reg(priv, 0x14, ni + (si << 6));
 	if (rc < 0)
 		return rc;
@@ -748,7 +761,6 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 		val = 0x08;
 	else
 		val = 0x00;
-
 	rc = r82xx_write_reg_mask(priv, 0x12, val, 0x08);
 	if (rc < 0)
 		return rc;
@@ -1067,4 +1079,13 @@ err:
 	if (rc < 0)
 		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, rc);
 	return rc;
+}
+
+static const int r82xx_gains[] = { 0, 35, 70, 105, 140, 175, 210, 245, 280, 315,
+						 		350, 385, 420, 455, 490, 525 };
+
+const int *r82xx_get_gains(int *len)
+{
+	*len = sizeof(r82xx_gains);
+	return r82xx_gains;
 }

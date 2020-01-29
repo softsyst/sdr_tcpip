@@ -61,7 +61,7 @@ typedef int socklen_t;
 #define SOCKET_ERROR -1
 #endif
 
-#define MAX_I2C_REGISTERS  32
+#define MAX_I2C_REGISTERS  168
 #define TX_BUF_LEN (5+MAX_I2C_REGISTERS) //1 command, 2 strength, 2 len
 
 

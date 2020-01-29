@@ -117,7 +117,7 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
 	return fc001x_writereg(dev, reg, val);
 }
 
-static int print_registers(void *dev)
+/*static int print_registers(void *dev)
 {
 	uint8_t data[22];
 	unsigned int i;
@@ -131,7 +131,7 @@ static int print_registers(void *dev)
 		printf("%02x ", data[i]);
 	printf("\n");
 	return 0;
-}
+}*/
 
 
 /* Incomplete list of FC0012 register settings:
@@ -164,6 +164,7 @@ static int print_registers(void *dev)
  *								(Receive Signal Strength Indicator)
  *					0x09	6	?
  *					0x09	7	1=Gap near 0 MHz
+ *					0x0c	0-1	AGC Up-Down mode: 0=Realtek-mode
  *					0x0c	7	?
  * LNA_FORCE		0x0d	0	?
  *					0x0d	1	LNA Gain: 1=variable, 0=fixed
@@ -186,7 +187,7 @@ int fc0012_init(void *dev)
 		0x00,	/* reg. 0x03 */
 		0x00,	/* reg. 0x04 */
 		0x0f,	/* reg. 0x05: may also be 0x0a */
-		0x00,	/* reg. 0x06: divider 2, VCO slow */
+		0x80,	/* reg. 0x06: BW 6 Mhz, divider 2, VCO slow */
 		0x20,	/* reg. 0x07: may also be 0x0f */
 		0xff,	/* reg. 0x08: AGC Clock divide by 256, AGC gain 1/256,
 			 				  Loop Bw 1/8 */
@@ -194,7 +195,7 @@ int fc0012_init(void *dev)
 		0xb8,	/* reg. 0x0a: Disable LO Test Buffer */
 		0x82,	/* reg. 0x0b: Output Clock is same as clock frequency,
 			 				  may also be 0x83 */
-		0xfe,	/* reg. 0x0c: depending on AGC Up-Down mode, may need 0xf8 */
+		0xfc,	/* reg. 0x0c: depending on AGC Up-Down mode, may need 0xf8 */
 		0x02,	/* reg. 0x0d: AGC Not Forcing & LNA Forcing, 0x02 for DVB-T */
 		0x00,	/* reg. 0x0e */
 		0x00,	/* reg. 0x0f */
@@ -219,21 +220,20 @@ int fc0013_init(void *dev)
 		0x17,	/* reg. 0x05 */
 		0x02,	/* reg. 0x06: LPF bandwidth */
 		0x2a,	/* reg. 0x07: CHECK */
-		0xff,	/* reg. 0x08: AGC Clock divide by 256, AGC gain 1/256,
-			   Loop Bw 1/8 */
+		0xff,	/* reg. 0x08: AGC Clock divide by 256, AGC gain 1/256, Loop Bw 1/8 */
 		0x6e,	/* reg. 0x09: Disable LoopThrough, Enable LoopThrough: 0x6f */
 		0xb8,	/* reg. 0x0a: Disable LO Test Buffer */
 		0x82,	/* reg. 0x0b: CHECK */
-		0xfe,	/* reg. 0x0c: depending on AGC Up-Down mode, may need 0xf8 */
-		0x01,	/* reg. 0x0d: AGC Not Forcing & LNA Forcing, may need 0x02 */
+		0xfc,	/* reg. 0x0c: depending on AGC Up-Down mode, may need 0xf8 */
+		0x02,	/* reg. 0x0d: AGC Not Forcing & LNA Forcing, may need 0x02 */
 		0x00,	/* reg. 0x0e */
 		0x00,	/* reg. 0x0f */
 		0x00,	/* reg. 0x10 */
 		0x00,	/* reg. 0x11 */
 		0x00,	/* reg. 0x12 */
 		0x00,	/* reg. 0x13 */
-		0x50,	/* reg. 0x14: DVB-t High Gain, UHF.
-			   Middle Gain: 0x48, Low Gain: 0x40 */
+		0x48,	/* reg. 0x14: DVB-t Middle Gain, UHF.
+			   				  High Gain: 0x50, Low Gain: 0x40 */
 		0x01,	/* reg. 0x15 */
 	};
 	return fc001x_write(dev, 1, reg, sizeof(reg));
@@ -270,13 +270,13 @@ error_out:
 	return ret;
 }
 
-static int fc001x_set_params(void *dev, uint32_t freq, uint32_t bandwidth, enum rtlsdr_tuner tuner_type)
+static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_type)
 {
 	int ret = 0;
 	uint8_t reg[7], am, pm, multi, tmp;
 	uint64_t f_vco;
 	uint32_t xtal_freq_div_2;
-	uint16_t xin, xdiv;
+	uint16_t xdiv, xin;
 	int vco_select = 0;
 
 	xtal_freq_div_2 = rtlsdr_get_tuner_clock(dev) / 2;
@@ -393,20 +393,18 @@ static int fc001x_set_params(void *dev, uint32_t freq, uint32_t bandwidth, enum 
 		{
 			multi = 4;
 			reg[5] = 0x0a;
-			reg[6] = 0x02;
 		}
 		else
 		{
 			if (freq < 950000000) {	/* freq * 4 < 3800000000 */
 				multi = 4;
 				reg[5] = 0x12;
-				reg[6] = 0x02;
 			} else {
 				multi = 2;
 				reg[5] = 0x0a;
-				reg[6] = 0x02;
 			}
 		}
+		reg[6] = 0x02;
 	}
 
 	f_vco = freq * multi;
@@ -447,26 +445,17 @@ static int fc001x_set_params(void *dev, uint32_t freq, uint32_t bandwidth, enum 
 
 	/* From VCO frequency determines the XIN ( fractional part of Delta
 	   Sigma PLL) and divided value (XDIV) */
-	xin = (uint16_t)((f_vco - (f_vco / xtal_freq_div_2) * xtal_freq_div_2) / 1000);
-	xin = (xin << 15) / (xtal_freq_div_2 / 1000);
+	xin = (uint16_t)(((f_vco % xtal_freq_div_2) << 15) / xtal_freq_div_2);
 	if (xin >= 16384)
 		xin += 32768;
-
 	reg[3] = xin >> 8;	/* xin with 9 bit resolution */
 	reg[4] = xin & 0xff;
+	//printf("f_vco=%I64u, xin=%u ", f_vco, xin);
 
-	reg[6] &= 0x3f; /* bits 6 and 7 describe the bandwidth */
-	switch (bandwidth) {
-	case 6000000:
-		reg[6] |= 0x80;
-		break;
-	case 7000000:
-		reg[6] |= 0x40;
-		break;
-	case 8000000:
-	default:
-		break;
-	}
+	ret = fc001x_readreg(dev, 0x06, &tmp);
+	if (ret)
+		goto exit;
+	reg[6] |= tmp & 0xc0; /* bits 6 and 7 describe the bandwidth */
 
 	/* modified for Realtek demod */
 	reg[5] |= 0x07;
@@ -533,11 +522,11 @@ exit:
 int fc0012_set_freq(void *dev, uint32_t freq) {
 	// select V-band/U-band filter
 	rtlsdr_set_gpio_bit(dev, 6, (freq > 300000000) ? 1 : 0);
-	return fc001x_set_params(dev, freq, 6000000, RTLSDR_TUNER_FC0012);
+	return fc001x_set_freq(dev, freq, RTLSDR_TUNER_FC0012);
 }
 
 int fc0013_set_freq(void *dev, uint32_t freq) {
-	return fc001x_set_params(dev, freq, 6000000, RTLSDR_TUNER_FC0013);
+	return fc001x_set_freq(dev, freq, RTLSDR_TUNER_FC0013);
 }
 
 int fc001x_set_gain_mode(void *dev, int manual)
@@ -548,15 +537,15 @@ int fc001x_set_gain_mode(void *dev, int manual)
 
 static const uint8_t lna_gains[]=
 //LNA dB
-//0    0    0    0    3.6   6    6    6   17   17   17  27.8 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6
-{0x02,0x02,0x02,0x02,0x00,0x18,0x18,0x18,0x08,0x08,0x08,0x17,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10};
+//0    0    0    0    3.6  7.4  7.4  7.4  17   17   17  27.8 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6
+{0x02,0x02,0x02,0x02,0x00,0x1e,0x1e,0x1e,0x08,0x08,0x08,0x17,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10};
 static const uint8_t if_gains[]=
 //IF dB
-//0    3    6.5  9.8  9.8  9.8 13.4  17   9.8 13.4  17   9.8  9.8 13.4  17  20.6 24.2 27.8 31.4 35   38.6 42.2 45.8 49.4 53.0 56.6 60.2 63.8
-{0x80,0x40,0x20,0x01,0x01,0x01,0x03,0x05,0x01,0x03,0x05,0x01,0x01,0x03,0x05,0x07,0x09,0x0b,0x0d,0x0f,0x11,0x12,0x15,0x17,0x19,0x1b,0x1d,0x1f};
+//0    3.1  6.5 10.3 10.3 10.3 14.3 18.3 12.3 16.3 20.3 12.3 14.3 18.3 22.3 26.3 30.3 34.3 38.3 42.3 46.3 50.3 54.3 58.3 62.3 66.3 70.3
+{0x80,0x40,0x20,0x01,0x01,0x01,0x03,0x05,0x02,0x04,0x06,0x02,0x03,0x05,0x07,0x09,0x0b,0x0d,0x0f,0x11,0x13,0x15,0x17,0x19,0x1b,0x1d,0x1f};
 static const int fc001x_gains[] =
 //Total dB*10
-{  0,  30,  65,  98, 134, 158, 194, 230, 268, 304, 340, 376, 394, 430, 466, 502, 538, 574, 610, 646, 682, 718, 754, 790, 826, 862, 898, 934 };
+{  0,  31,  65, 103, 139, 177, 217, 257, 293, 333, 373, 401, 439, 479, 519, 559, 599, 639, 679, 719, 759, 799, 839, 879, 919, 959, 999 };
 
 #define GAIN_CNT	(sizeof(fc001x_gains) / sizeof(int))
 
@@ -586,8 +575,27 @@ int fc0013_set_gain(void *dev, int gain)
 
 int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
 {
-	*applied_bw = 6000000;
-	return 0;
+	uint8_t data;
+
+	if (bw < 6500000)
+	{
+		*applied_bw = 6000000;
+		data = 0x80;
+	}
+	else if (bw < 7500000)
+	{
+		*applied_bw = 7000000;
+		data = 0x40;
+	}
+	else
+	{
+		*applied_bw = 8000000;
+		data = 0x00;
+	}
+	if(!apply)
+		return 0;
+
+	return fc001x_write_reg_mask(dev, 0x06, data, 0xc0);
 }
 
 int fc001x_exit(void *dev) { return 0; }
@@ -604,21 +612,18 @@ static const int lna_gain_table[] = {
 	/* middle gain */
 	 71,  70,  68,  67,	 65,  63,  61,  58,
 	/* high gain */
-	197, 191, 188, 186,	184, 182, 181, 179
+	197, 191, 188, 186,	184, 182, 181, 179,
+	/* low gain */
+	-28, -27, -43, -32, -27, -28, -25, -27
 };
-static const int mixer_gain_table[] = { 80, 65, 30, 45, 0, 0, 15, 0};
+static const int mixer_gain_table[] = { 83, 65, 31, 48, 0, 0, 13, 0};
 
-static int fc001x_get_signal_strength(uint8_t if_reg, uint8_t lna_reg)
+static int fc001x_get_signal_strength(uint8_t vga, uint8_t lna)
 {
-	int lna, lna_gain;
-	int if_gain = (if_reg & 0x1f) * 18;
-	int mixer_gain = mixer_gain_table[(if_reg >> 5) & 0x07];
-	lna = lna_reg & 0x1f;
-	if (lna < 24)
-		lna_gain = lna_gain_table[lna];
-	else
-		lna_gain = -30;
-	return 835 - if_gain - mixer_gain - lna_gain;
+	int if_gain = (vga & 0x1f) * 20;
+	int mixer_gain = mixer_gain_table[(vga >> 5) & 0x07];
+	int lna_gain = lna_gain_table[lna & 0x1f];
+	return 900 - if_gain - mixer_gain - lna_gain;
 }
 
 static int fc001x_get_i2c_register(void *dev, unsigned char* data, int *len, int *strength,
@@ -640,7 +645,13 @@ int fc0012_get_i2c_register(void *dev, unsigned char *data, int *len, int *stren
 }
 
 int fc0013_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength)
-{
+ {
 	*len = 32;
 	return fc001x_get_i2c_register(dev, data, len, strength, 0x13, 0x14);
+}
+
+const int *fc001x_get_gains(int *len)
+{
+	*len = sizeof(fc001x_gains);
+	return fc001x_gains;
 }

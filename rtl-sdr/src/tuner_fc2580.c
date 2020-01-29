@@ -7,408 +7,176 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "rtlsdr_i2c.h"
 #include "tuner_fc2580.h"
 
-/* 16.384 MHz (at least on the Logilink VG0002A) */
-#define CRYSTAL_FREQ		16384000
+typedef enum {
+	FC2580_NO_BAND,
+	FC2580_VHF_BAND,
+	FC2580_UHF_BAND,
+	FC2580_L_BAND
+} fc2580_band_type;
+
+struct fc2580_reg_val {
+	uint8_t reg;
+	uint8_t val;
+};
+
+static const struct fc2580_reg_val fc2580_init_reg_vals[] = {
+	{0x00, 0x00},
+	{0x12, 0x86},
+	{0x14, 0x5c},
+	{0x16, 0x3c},
+	{0x1f, 0xd2},
+	{0x09, 0xd7},
+	{0x0b, 0xd5},
+	{0x0c, 0x32},
+	{0x0e, 0x43},
+	{0x21, 0x0a},
+	{0x22, 0x82},
+	{0x45, 0x10}, //internal AGC
+	{0x4c, 0x00},
+	{0x3f, 0x88},
+	{0x02, 0x0e},
+	{0x58, 0x14},
+	{0x6b, 0x11}, //threshold VGA
+	{0x6c, 0x13}  //threshold VGA
+};
+
+struct fc2580_pll {
+	uint32_t freq;
+	uint8_t div_out;
+	uint8_t band;
+};
+
+static const struct fc2580_pll fc2580_pll_lut[] = {
+	/*                            VCO min    VCO max */
+	{ 400000000, 12, 0x80}, /* .......... 4800000000 */
+	{1000000000,  4, 0x00}, /* 1600000000 4000000000 */
+	{0xffffffff,  2, 0x40}, /* 2000000000 .......... */
+};
+
+struct fc2580_freq_regs {
+	uint32_t freq;
+	uint8_t r25_val;
+	uint8_t r27_val;
+	uint8_t r28_val;
+	uint8_t r29_val;
+	uint8_t r2b_val;
+	uint8_t r2c_val;
+	uint8_t r2d_val;
+	uint8_t r30_val;
+	uint8_t r44_val;
+	uint8_t r50_val;
+	uint8_t r53_val;
+	uint8_t r5f_val;
+	uint8_t r61_val;
+	uint8_t r62_val;
+	uint8_t r63_val;
+	uint8_t r67_val; //threshold LNA
+	uint8_t r68_val; //threshold LNA
+	uint8_t r69_val;
+	uint8_t r6a_val;
+	uint8_t r6d_val;
+	uint8_t r6e_val;
+	uint8_t r6f_val;
+};
+
+/* XXX: 0xff is used for don't-care! */
+static const struct fc2580_freq_regs fc2580_freq_regs_lut[] = {
+	{ 400000000,
+		0xff, 0x77, 0x33, 0x40, 0xff, 0xff, 0xff, 0x09, 0xff, 0x8c,
+		0x50, 0x0f, 0x07, 0x00, 0x15, 0x03, 0x05, 0x10, 0x12, 0x78,
+		0x32, 0x54},
+	{ 538000000,
+		0xf0, 0x77, 0x53, 0x60, 0xff, 0xff, 0x9f, 0x09, 0xff, 0x8c,
+		0x50, 0x13, 0x07, 0x06, 0x15, 0x06, 0x08, 0x10, 0x12, 0x78,
+		0x32, 0x14},
+	{ 794000000,
+		0xf0, 0x77, 0x53, 0x60, 0xff, 0xff, 0x9f, 0x09, 0xff, 0x8c,
+		0x50, 0x15, 0x03, 0x03, 0x15, 0x03, 0x05, 0x0c, 0x0e, 0x78,
+		0x32, 0x14},
+	{1000000000,
+		0xf0, 0x77, 0x53, 0x60, 0xff, 0xff, 0x8f, 0x09, 0xff, 0x8c,
+		0x50, 0x15, 0x07, 0x06, 0x15, 0x07, 0x09, 0x10, 0x12, 0x78,
+		0x32, 0x14},
+	{0xffffffff,
+		0xff, 0xff, 0xff, 0xff, 0x70, 0x37, 0xe7, 0x09, 0x20, 0x8c,
+		0x50, 0x0f, 0x0f, 0x00, 0x13, 0x00, 0x02, 0x0c, 0x0e, 0xa0,
+		0x50, 0x14},
+};
+
+static uint8_t band = FC2580_NO_BAND;
 
 /* glue functions to rtl-sdr code */
 
-fc2580_fci_result_type fc2580_i2c_write(void *pTuner, unsigned char reg, unsigned char val)
+/*
+ * TODO:
+ * I2C write and read works only for one single register. Multiple registers
+ * could not be accessed using normal register address auto-increment.
+ * There could be (very likely) register to change that behavior....
+ */
+static int fc2580_write(void *dev, unsigned char reg, unsigned char val)
 {
 	uint8_t data[2];
 
 	data[0] = reg;
 	data[1] = val;
 
-	if (rtlsdr_i2c_write_fn(pTuner, FC2580_I2C_ADDR, data, 2) < 0)
-		return FC2580_FCI_FAIL;
+	if (rtlsdr_i2c_write_fn(dev, FC2580_I2C_ADDR, data, 2) < 0)
+		return -1;
 
-	return FC2580_FCI_SUCCESS;
+	return 0;
 }
 
-fc2580_fci_result_type fc2580_i2c_read(void *pTuner, unsigned char reg, unsigned char *read_data)
+/* write single register conditionally only when value differs from 0xff
+ * XXX: This is special routine meant only for writing fc2580_freq_regs_lut[]
+ * values. Do not use for the other purposes. */
+static int fc2580_wr_reg_ff(void *dev, uint8_t reg, uint8_t val)
+{
+	if (val == 0xff)
+		return 0;
+	else
+		return fc2580_write(dev, reg, val);
+}
+
+static int fc2580_read(void *dev, unsigned char reg, unsigned char *read_data)
 {
 	uint8_t data = reg;
 
-	if (rtlsdr_i2c_write_fn(pTuner, FC2580_I2C_ADDR, &data, 1) < 0)
-		return FC2580_FCI_FAIL;
+	if (rtlsdr_i2c_write_fn(dev, FC2580_I2C_ADDR, &data, 1) < 0)
+		return -1;
 
-	if (rtlsdr_i2c_read_fn(pTuner, FC2580_I2C_ADDR, &data, 1) < 0)
-		return FC2580_FCI_FAIL;
+	if (rtlsdr_i2c_read_fn(dev, FC2580_I2C_ADDR, &data, 1) < 0)
+		return -1;
 
 	*read_data = data;
-
-	return FC2580_FCI_SUCCESS;
+	return 0;
 }
 
-int fc2580_Initialize(void *pTuner)
+static int fc2580_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t bit_mask)
 {
-	int AgcMode;
-	unsigned int CrystalFreqKhz;
+	int rc;
+	uint8_t val;
 
-	//TODO set AGC mode
-	AgcMode = FC2580_AGC_EXTERNAL;
-
-	// Initialize tuner with AGC mode.
-	// Note: CrystalFreqKhz = round(CrystalFreqHz / 1000)
-	CrystalFreqKhz = (unsigned int)((CRYSTAL_FREQ + 500) / 1000);
-
-	if(fc2580_set_init(pTuner, AgcMode, CrystalFreqKhz) != FC2580_FCI_SUCCESS)
-		goto error_status_initialize_tuner;
-
-
-	return FUNCTION_SUCCESS;
-
-
-error_status_initialize_tuner:
-	return FUNCTION_ERROR;
-}
-
-int fc2580_SetRfFreqHz(void *pTuner, unsigned long RfFreqHz)
-{
-	unsigned int RfFreqKhz;
-	unsigned int CrystalFreqKhz;
-
-	// Set tuner RF frequency in KHz.
-	// Note: RfFreqKhz = round(RfFreqHz / 1000)
-	//       CrystalFreqKhz = round(CrystalFreqHz / 1000)
-	RfFreqKhz = (unsigned int)((RfFreqHz + 500) / 1000);
-	CrystalFreqKhz = (unsigned int)((CRYSTAL_FREQ + 500) / 1000);
-
-	if(fc2580_set_freq(pTuner, RfFreqKhz, CrystalFreqKhz) != FC2580_FCI_SUCCESS)
-		goto error_status_set_tuner_rf_frequency;
-
-	return FUNCTION_SUCCESS;
-
-error_status_set_tuner_rf_frequency:
-	return FUNCTION_ERROR;
-}
-
-/**
-
-@brief   Set FC2580 tuner bandwidth mode.
-
-*/
-int fc2580_SetBandwidthMode(void *pTuner, int BandwidthMode)
-{
-	unsigned int CrystalFreqKhz;
-
-	// Set tuner bandwidth mode.
-	// Note: CrystalFreqKhz = round(CrystalFreqHz / 1000)
-	CrystalFreqKhz = (unsigned int)((CRYSTAL_FREQ + 500) / 1000);
-
-	if(fc2580_set_filter(pTuner, (unsigned char)BandwidthMode, CrystalFreqKhz) != FC2580_FCI_SUCCESS)
-		goto error_status_set_tuner_bandwidth_mode;
-
-	return FUNCTION_SUCCESS;
-
-
-error_status_set_tuner_bandwidth_mode:
-	return FUNCTION_ERROR;
-}
-
-void fc2580_wait_msec(void *pTuner, int a)
-{
-	/* USB latency is enough for now ;) */
-//	usleep(a * 1000);
-	return;
-}
-
-/*==============================================================================
-       fc2580 initial setting
-
-  This function is a generic function which gets called to initialize
-
-  fc2580 in DVB-H mode or L-Band TDMB mode
-
-  <input parameter>
-
-  ifagc_mode
-    type : integer
-	1 : Internal AGC
-	2 : Voltage Control Mode
-
-==============================================================================*/
-fc2580_fci_result_type fc2580_set_init(void *pTuner, int ifagc_mode, unsigned int freq_xtal)
-{
-	fc2580_fci_result_type result = FC2580_FCI_SUCCESS;
-
-	result &= fc2580_i2c_write(pTuner, 0x00, 0x00);	/*** Confidential ***/
-	result &= fc2580_i2c_write(pTuner, 0x12, 0x86);
-	result &= fc2580_i2c_write(pTuner, 0x14, 0x5C);
-	result &= fc2580_i2c_write(pTuner, 0x16, 0x3C);
-	result &= fc2580_i2c_write(pTuner, 0x1F, 0xD2);
-	result &= fc2580_i2c_write(pTuner, 0x09, 0xD7);
-	result &= fc2580_i2c_write(pTuner, 0x0B, 0xD5);
-	result &= fc2580_i2c_write(pTuner, 0x0C, 0x32);
-	result &= fc2580_i2c_write(pTuner, 0x0E, 0x43);
-	result &= fc2580_i2c_write(pTuner, 0x21, 0x0A);
-	result &= fc2580_i2c_write(pTuner, 0x22, 0x82);
-	if( ifagc_mode == 1 )
-	{
-		result &= fc2580_i2c_write(pTuner, 0x45, 0x10);	//internal AGC
-		result &= fc2580_i2c_write(pTuner, 0x4C, 0x00);	//HOLD_AGC polarity
-	}
-	else if( ifagc_mode == 2 )
-	{
-		result &= fc2580_i2c_write(pTuner, 0x45, 0x20);	//Voltage Control Mode
-		result &= fc2580_i2c_write(pTuner, 0x4C, 0x02);	//HOLD_AGC polarity
-	}
-	result &= fc2580_i2c_write(pTuner, 0x3F, 0x88);
-	result &= fc2580_i2c_write(pTuner, 0x02, 0x0E);
-	result &= fc2580_i2c_write(pTuner, 0x58, 0x14);
-	result &= fc2580_set_filter(pTuner, 8, freq_xtal);	//BW = 7.8MHz
-
-	return result;
-}
-
-
-/*==============================================================================
-       fc2580 frequency setting
-
-  This function is a generic function which gets called to change LO Frequency
-
-  of fc2580 in DVB-H mode or L-Band TDMB mode
-
-  <input parameter>
-  freq_xtal: kHz
-
-  f_lo
-	Value of target LO Frequency in 'kHz' unit
-	ex) 2.6GHz = 2600000
-
-==============================================================================*/
-fc2580_fci_result_type fc2580_set_freq(void *pTuner, unsigned int f_lo, unsigned int freq_xtal)
-{
-	unsigned int f_diff, f_diff_shifted, n_val, k_val;
-	unsigned int f_vco, r_val, f_comp;
-	unsigned char pre_shift_bits = 4;// number of preshift to prevent overflow in shifting f_diff to f_diff_shifted
-	unsigned char data_0x18;
-	unsigned char data_0x02 = (USE_EXT_CLK<<5)|0x0E;
-
-	fc2580_band_type band = ( f_lo > 1000000 )? FC2580_L_BAND : ( f_lo > 400000 )? FC2580_UHF_BAND : FC2580_VHF_BAND;
-
-	fc2580_fci_result_type result = FC2580_FCI_SUCCESS;
-
-	f_vco = ( band == FC2580_UHF_BAND )? f_lo * 4 : (( band == FC2580_L_BAND )? f_lo * 2 : f_lo * 12);
-	r_val = ( f_vco >= 2*76*freq_xtal )? 1 : ( f_vco >= 76*freq_xtal )? 2 : 4;
-	f_comp = freq_xtal/r_val;
-	n_val =	( f_vco / 2 ) / f_comp;
-
-	f_diff = f_vco - 2* f_comp * n_val;
-	f_diff_shifted = f_diff << ( 20 - pre_shift_bits );
-	k_val = f_diff_shifted / ( ( 2* f_comp ) >> pre_shift_bits );
-
-	if( f_diff_shifted - k_val * ( ( 2* f_comp ) >> pre_shift_bits ) >= ( f_comp >> pre_shift_bits ) )
-	k_val = k_val + 1;
-
-	if( f_vco >= BORDER_FREQ )	//Select VCO Band
-		data_0x02 = data_0x02 | 0x08;	//0x02[3] = 1;
+	if(bit_mask == 0xff)
+		val = data;
 	else
-		data_0x02 = data_0x02 & 0xF7;	//0x02[3] = 0;
-
-//	if( band != curr_band ) {
-		switch(band)
-		{
-			case FC2580_UHF_BAND:
-				data_0x02 = (data_0x02 & 0x3F);
-
-				result &= fc2580_i2c_write(pTuner, 0x25, 0xF0);
-				result &= fc2580_i2c_write(pTuner, 0x27, 0x77);
-				result &= fc2580_i2c_write(pTuner, 0x28, 0x53);
-				result &= fc2580_i2c_write(pTuner, 0x29, 0x60);
-				result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
-				result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
-				result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
-
-				if( f_lo < 538000 )
-					result &= fc2580_i2c_write(pTuner, 0x5F, 0x13);
-				else
-					result &= fc2580_i2c_write(pTuner, 0x5F, 0x15);
-
-				if( f_lo < 538000 )
-				{
-					result &= fc2580_i2c_write(pTuner, 0x61, 0x07);
-					result &= fc2580_i2c_write(pTuner, 0x62, 0x06);
-					result &= fc2580_i2c_write(pTuner, 0x67, 0x06);
-					result &= fc2580_i2c_write(pTuner, 0x68, 0x08);
-					result &= fc2580_i2c_write(pTuner, 0x69, 0x10);
-					result &= fc2580_i2c_write(pTuner, 0x6A, 0x12);
-				}
-				else if( f_lo < 794000 )
-				{
-					result &= fc2580_i2c_write(pTuner, 0x61, 0x03);
-					result &= fc2580_i2c_write(pTuner, 0x62, 0x03);
-					result &= fc2580_i2c_write(pTuner, 0x67, 0x03);  //ACI improve
-					result &= fc2580_i2c_write(pTuner, 0x68, 0x05);  //ACI improve
-					result &= fc2580_i2c_write(pTuner, 0x69, 0x0C);
-					result &= fc2580_i2c_write(pTuner, 0x6A, 0x0E);
-				}
-				else
-				{
-					result &= fc2580_i2c_write(pTuner, 0x61, 0x07);
-					result &= fc2580_i2c_write(pTuner, 0x62, 0x06);
-					result &= fc2580_i2c_write(pTuner, 0x67, 0x07);
-					result &= fc2580_i2c_write(pTuner, 0x68, 0x09);
-					result &= fc2580_i2c_write(pTuner, 0x69, 0x10);
-					result &= fc2580_i2c_write(pTuner, 0x6A, 0x12);
-				}
-
-				result &= fc2580_i2c_write(pTuner, 0x63, 0x15);
-
-				result &= fc2580_i2c_write(pTuner, 0x6B, 0x0B);
-				result &= fc2580_i2c_write(pTuner, 0x6C, 0x0C);
-				result &= fc2580_i2c_write(pTuner, 0x6D, 0x78);
-				result &= fc2580_i2c_write(pTuner, 0x6E, 0x32);
-				result &= fc2580_i2c_write(pTuner, 0x6F, 0x14);
-				result &= fc2580_set_filter(pTuner, 8, freq_xtal);	//BW = 7.8MHz
-				break;
-			case FC2580_VHF_BAND:
-				data_0x02 = (data_0x02 & 0x3F) | 0x80;
-				result &= fc2580_i2c_write(pTuner, 0x27, 0x77);
-				result &= fc2580_i2c_write(pTuner, 0x28, 0x33);
-				result &= fc2580_i2c_write(pTuner, 0x29, 0x40);
-				result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
-				result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
-				result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
-				result &= fc2580_i2c_write(pTuner, 0x5F, 0x0F);
-				result &= fc2580_i2c_write(pTuner, 0x61, 0x07);
-				result &= fc2580_i2c_write(pTuner, 0x62, 0x00);
-				result &= fc2580_i2c_write(pTuner, 0x63, 0x15);
-				result &= fc2580_i2c_write(pTuner, 0x67, 0x03);
-				result &= fc2580_i2c_write(pTuner, 0x68, 0x05);
-				result &= fc2580_i2c_write(pTuner, 0x69, 0x10);
-				result &= fc2580_i2c_write(pTuner, 0x6A, 0x12);
-				result &= fc2580_i2c_write(pTuner, 0x6B, 0x08);
-				result &= fc2580_i2c_write(pTuner, 0x6C, 0x0A);
-				result &= fc2580_i2c_write(pTuner, 0x6D, 0x78);
-				result &= fc2580_i2c_write(pTuner, 0x6E, 0x32);
-				result &= fc2580_i2c_write(pTuner, 0x6F, 0x54);
-				result &= fc2580_set_filter(pTuner, 7, freq_xtal);	//BW = 6.8MHz
-				break;
-			case FC2580_L_BAND:
-				data_0x02 = (data_0x02 & 0x3F) | 0x40;
-				result &= fc2580_i2c_write(pTuner, 0x2B, 0x70);
-				result &= fc2580_i2c_write(pTuner, 0x2C, 0x37);
-				result &= fc2580_i2c_write(pTuner, 0x2D, 0xE7);
-				result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
-				result &= fc2580_i2c_write(pTuner, 0x44, 0x20);
-				result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
-				result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
-				result &= fc2580_i2c_write(pTuner, 0x5F, 0x0F);
-				result &= fc2580_i2c_write(pTuner, 0x61, 0x0F);
-				result &= fc2580_i2c_write(pTuner, 0x62, 0x00);
-				result &= fc2580_i2c_write(pTuner, 0x63, 0x13);
-				result &= fc2580_i2c_write(pTuner, 0x67, 0x00);
-				result &= fc2580_i2c_write(pTuner, 0x68, 0x02);
-				result &= fc2580_i2c_write(pTuner, 0x69, 0x0C);
-				result &= fc2580_i2c_write(pTuner, 0x6A, 0x0E);
-				result &= fc2580_i2c_write(pTuner, 0x6B, 0x08);
-				result &= fc2580_i2c_write(pTuner, 0x6C, 0x0A);
-				result &= fc2580_i2c_write(pTuner, 0x6D, 0xA0);
-				result &= fc2580_i2c_write(pTuner, 0x6E, 0x50);
-				result &= fc2580_i2c_write(pTuner, 0x6F, 0x14);
-				result &= fc2580_set_filter(pTuner, 1, freq_xtal);	//BW = 1.53MHz
-				break;
-			default:
-				break;
-		}
-//		curr_band = band;
-//	}
-
-	//A command about AGC clock's pre-divide ratio
-	if( freq_xtal >= 28000 )
-		result &= fc2580_i2c_write(pTuner, 0x4B, 0x22 );
-
-	//Commands about VCO Band and PLL setting.
-	result &= fc2580_i2c_write(pTuner, 0x02, data_0x02);
-	data_0x18 = ( ( r_val == 1 )? 0x00 : ( ( r_val == 2 )? 0x10 : 0x20 ) ) + (unsigned char)(k_val >> 16);
-	result &= fc2580_i2c_write(pTuner, 0x18, data_0x18);						//Load 'R' value and high part of 'K' values
-	result &= fc2580_i2c_write(pTuner, 0x1A, (unsigned char)( k_val >> 8 ) );	//Load middle part of 'K' value
-	result &= fc2580_i2c_write(pTuner, 0x1B, (unsigned char)( k_val ) );		//Load lower part of 'K' value
-	result &= fc2580_i2c_write(pTuner, 0x1C, (unsigned char)( n_val ) );		//Load 'N' value
-
-	//A command about UHF LNA Load Cap
-	if( band == FC2580_UHF_BAND )
-		result &= fc2580_i2c_write(pTuner, 0x2D, ( f_lo <= (unsigned int)794000 )? 0x9F : 0x8F );	//LNA_OUT_CAP
-
-
-	return result;
+	{
+		rc = fc2580_read(dev, reg, &val);
+		if(rc < 0)
+			return -1;
+		val = (val & ~bit_mask) | (data & bit_mask);
+	}
+	return fc2580_write(dev, reg, val);
 }
 
-
-/*==============================================================================
-       fc2580 filter BW setting
-
-  This function is a generic function which gets called to change Bandwidth
-
-  frequency of fc2580's channel selection filter
-
-  <input parameter>
-  freq_xtal: kHz
-
-  filter_bw
-    1 : 1.53MHz(TDMB)
-	6 : 6MHz   (Bandwidth 6MHz)
-	7 : 6.8MHz (Bandwidth 7MHz)
-	8 : 7.8MHz (Bandwidth 8MHz)
-
-
-==============================================================================*/
-fc2580_fci_result_type fc2580_set_filter(void *pTuner, unsigned char filter_bw, unsigned int freq_xtal)
+int fc2580_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, unsigned mask)
 {
-	unsigned char	cal_mon = 0, i;
-	fc2580_fci_result_type result = FC2580_FCI_SUCCESS;
-
-	if(filter_bw == 1)
-	{
-		result &= fc2580_i2c_write(pTuner, 0x36, 0x1C);
-		result &= fc2580_i2c_write(pTuner, 0x37, (unsigned char)(4151*freq_xtal/1000000) );
-		result &= fc2580_i2c_write(pTuner, 0x39, 0x00);
-		result &= fc2580_i2c_write(pTuner, 0x2E, 0x09);
-	}
-	if(filter_bw == 6)
-	{
-		result &= fc2580_i2c_write(pTuner, 0x36, 0x18);
-		result &= fc2580_i2c_write(pTuner, 0x37, (unsigned char)(4400*freq_xtal/1000000) );
-		result &= fc2580_i2c_write(pTuner, 0x39, 0x00);
-		result &= fc2580_i2c_write(pTuner, 0x2E, 0x09);
-	}
-	else if(filter_bw == 7)
-	{
-		result &= fc2580_i2c_write(pTuner, 0x36, 0x18);
-		result &= fc2580_i2c_write(pTuner, 0x37, (unsigned char)(3910*freq_xtal/1000000) );
-		result &= fc2580_i2c_write(pTuner, 0x39, 0x80);
-		result &= fc2580_i2c_write(pTuner, 0x2E, 0x09);
-	}
-	else if(filter_bw == 8)
-	{
-		result &= fc2580_i2c_write(pTuner, 0x36, 0x18);
-		result &= fc2580_i2c_write(pTuner, 0x37, (unsigned char)(3300*freq_xtal/1000000) );
-		result &= fc2580_i2c_write(pTuner, 0x39, 0x80);
-		result &= fc2580_i2c_write(pTuner, 0x2E, 0x09);
-	}
-
-
-	for(i=0; i<5; i++)
-	{
-		fc2580_wait_msec(pTuner, 5);//wait 5ms
-		result &= fc2580_i2c_read(pTuner, 0x2F, &cal_mon);
-		if( (cal_mon & 0xC0) != 0xC0)
-		{
-			result &= fc2580_i2c_write(pTuner, 0x2E, 0x01);
-			result &= fc2580_i2c_write(pTuner, 0x2E, 0x09);
-		}
-		else
-			break;
-	}
-
-	result &= fc2580_i2c_write(pTuner, 0x2E, 0x01);
-
-	return result;
+	return fc2580_write_reg_mask(dev, i2c_register & 0xFF, data & 0xff, mask & 0xff);
 }
 
 /*==============================================================================
@@ -419,65 +187,326 @@ fc2580_fci_result_type fc2580_set_filter(void *pTuner, unsigned char filter_bw, 
   current RSSI value.
 
   <input parameter>
-	none
+	data
 
   <return value>
   int
   	rssi : estimated input power.
 
 ==============================================================================*/
-//int fc2580_get_rssi(void) {
-//
-//	unsigned char s_lna, s_rfvga, s_cfs, s_ifvga;
-//	int ofs_lna, ofs_rfvga, ofs_csf, ofs_ifvga, rssi;
-//
-//	fc2580_i2c_read(0x71, &s_lna );
-//	fc2580_i2c_read(0x72, &s_rfvga );
-//	fc2580_i2c_read(0x73, &s_cfs );
-//	fc2580_i2c_read(0x74, &s_ifvga );
-//
-//
-//	ofs_lna =
-//			(curr_band==FC2580_UHF_BAND)?
-//				(s_lna==0)? 0 :
-//				(s_lna==1)? -6 :
-//				(s_lna==2)? -17 :
-//				(s_lna==3)? -22 : -30 :
-//			(curr_band==FC2580_VHF_BAND)?
-//				(s_lna==0)? 0 :
-//				(s_lna==1)? -6 :
-//				(s_lna==2)? -19 :
-//				(s_lna==3)? -24 : -32 :
-//			(curr_band==FC2580_L_BAND)?
-//				(s_lna==0)? 0 :
-//				(s_lna==1)? -6 :
-//				(s_lna==2)? -11 :
-//				(s_lna==3)? -16 : -34 :
-//			0;//FC2580_NO_BAND
-//	ofs_rfvga = -s_rfvga+((s_rfvga>=11)? 1 : 0) + ((s_rfvga>=18)? 1 : 0);
-//	ofs_csf = -6*s_cfs;
-//	ofs_ifvga = s_ifvga/4;
-//
-//	return rssi = ofs_lna+ofs_rfvga+ofs_csf+ofs_ifvga+OFS_RSSI;
-//
-//}
+static int fc2580_get_rssi(unsigned char *data)
+{
+	#define OFS_RSSI  57
+	uint8_t s_lna =   data[0x71];
+	uint8_t s_rfvga = data[0x72];
+	uint8_t s_cfs =   data[0x73];
+	uint8_t s_ifvga = data[0x74];
+  	int ofs_lna =
+			(band==FC2580_VHF_BAND)?
+				(s_lna==0)? 0 :
+				(s_lna==1)? -6 :
+				(s_lna==2)? -19 :
+				(s_lna==3)? -24 : -32 :
+			(band==FC2580_UHF_BAND)?
+				(s_lna==0)? 0 :
+				(s_lna==1)? -6 :
+				(s_lna==2)? -17 :
+				(s_lna==3)? -22 : -30 :
+			(band==FC2580_L_BAND)?
+				(s_lna==0)? 0 :
+				(s_lna==1)? -6 :
+				(s_lna==2)? -11 :
+				(s_lna==3)? -16 : -34 :
+			0;//FC2580_NO_BAND*/
+	int ofs_rfvga = -s_rfvga+((s_rfvga>=11)? 1 : 0) + ((s_rfvga>=18)? 1 : 0);
+	int ofs_csf = -6*(s_cfs & 7);
+	int ofs_ifvga = s_ifvga/4;
+	int rssi = ofs_lna+ofs_rfvga+ofs_csf+ofs_ifvga+OFS_RSSI;
+	//printf("rssi=%d, ofs_lna=%d, ofs_rfvga=%d, ofs_csf=%d, ofs_ifvga=%d\n",
+	//	rssi, ofs_lna, ofs_rfvga, ofs_csf, ofs_ifvga);
+	return rssi;
+}
+
+int fc2580_get_i2c_register(void *dev, uint8_t *data, int *len, int *strength)
+{
+	int rc, i;
+
+	*len = 128;
+	*strength = 0;
+	rc = 0;
+	for(i=0; i<128; i++)
+	{
+		rc = fc2580_read(dev, i, &data[i]);
+		if (rc < 0)
+			return rc;
+	}
+	*strength = 10 * (96 - fc2580_get_rssi(data));
+	return 0;
+}
+
+static void fc2580_wait_msec(int a)
+{
+	/* USB latency is enough for now ;) */
+//	usleep(a * 1000);
+	return;
+}
+
+
+/*static int print_registers(void *dev)
+{
+	uint8_t data = 0;
+	unsigned int i, j;
+
+	printf("   0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
+	for(i=0; i<8; i++)
+	{
+		printf("%01x ", i);
+		for(j=0; j<16; j++)
+		{
+			fc2580_read(dev, i*16+j, &data);
+			printf("%02x ", data);
+		}
+		printf("\n");
+	}
+	return 0;
+}*/
+
+int fc2580_init(void *dev)
+{
+	int ret;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(fc2580_init_reg_vals); i++) {
+		ret = fc2580_write(dev, fc2580_init_reg_vals[i].reg,
+				fc2580_init_reg_vals[i].val);
+		if (ret)
+			goto err;
+	}
+	return 0;
+err:
+	fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, ret);
+	return ret;
+}
+
+int fc2580_set_freq(void *dev, unsigned int frequency)
+{
+	unsigned int i, uitmp, div_ref, div_ref_val, div_n, k_cw, div_out;
+	uint64_t f_vco;
+	uint8_t synth_config;
+	int ret = 0;
+	unsigned int freq_xtal = rtlsdr_get_tuner_clock(dev);
+
+	/*
+	 * Fractional-N synthesizer
+	 *
+	 *                      +---------------------------------------+
+	 *                      v                                       |
+	 *  Fref   +----+     +----+     +-------+         +----+     +------+     +---+
+	 * ------> | /R | --> | PD | --> |  VCO  | ------> | /2 | --> | /N.F | <-- | K |
+	 *         +----+     +----+     +-------+         +----+     +------+     +---+
+	 *                                 |
+	 *                                 |
+	 *                                 v
+	 *                               +-------+  Fout
+	 *                               | /Rout | ------>
+	 *                               +-------+
+	 */
+	band = (frequency > 1000000000UL)? FC2580_L_BAND : (frequency > 400000000UL)? FC2580_UHF_BAND : FC2580_VHF_BAND;
+	for (i = 0; i < ARRAY_SIZE(fc2580_pll_lut); i++) {
+		if (frequency <= fc2580_pll_lut[i].freq)
+			break;
+	}
+	if (i == ARRAY_SIZE(fc2580_pll_lut)) {
+		ret = -1;
+		goto err;
+	}
+
+	#define DIV_PRE_N 2
+	div_out = fc2580_pll_lut[i].div_out;
+	f_vco = (uint64_t)frequency * div_out;
+	synth_config = fc2580_pll_lut[i].band;
+	if (f_vco < 2600000000ULL)
+		synth_config |= 0x06;
+	else
+		synth_config |= 0x0e;
+
+	/* select reference divider R (keep PLL div N in valid range) */
+	#define DIV_N_MIN 76
+	if (f_vco >= (uint64_t)(DIV_PRE_N * DIV_N_MIN * freq_xtal)) {
+		div_ref = 1;
+		div_ref_val = 0x00;
+	} else if (f_vco >= (uint64_t)(DIV_PRE_N * DIV_N_MIN * freq_xtal / 2)) {
+		div_ref = 2;
+		div_ref_val = 0x10;
+	} else {
+		div_ref = 4;
+		div_ref_val = 0x20;
+	}
+
+	/* calculate PLL integer and fractional control word */
+	uitmp = DIV_PRE_N * freq_xtal / div_ref;
+	div_n = f_vco / uitmp;
+	k_cw = (f_vco % uitmp) * 0x100000 / uitmp;
+
+#if 0
+	fprintf(stderr,	"frequency=%u f_vco=%llu freq_xtal=%u div_ref=%u div_n=%u div_out=%u k_cw=%0x\n",
+		frequency, f_vco, freq_xtal, div_ref, div_n, div_out, k_cw);
+#endif
+
+	ret |= fc2580_write(dev, 0x02, synth_config);
+	ret |= fc2580_write(dev, 0x18, div_ref_val << 0 | k_cw >> 16);
+	ret |= fc2580_write(dev, 0x1a, (k_cw >> 8) & 0xff);
+	ret |= fc2580_write(dev, 0x1b, (k_cw >> 0) & 0xff);
+	ret |= fc2580_write(dev, 0x1c, div_n);
+	if (ret)
+		goto err;
+
+	/* registers */
+	for (i = 0; i < ARRAY_SIZE(fc2580_freq_regs_lut); i++) {
+		if (frequency <= fc2580_freq_regs_lut[i].freq)
+			break;
+	}
+	if (i == ARRAY_SIZE(fc2580_freq_regs_lut)) {
+		ret = -1;
+		goto err;
+	}
+	ret |= fc2580_wr_reg_ff(dev, 0x25, fc2580_freq_regs_lut[i].r25_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x27, fc2580_freq_regs_lut[i].r27_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x28, fc2580_freq_regs_lut[i].r28_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x29, fc2580_freq_regs_lut[i].r29_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x2b, fc2580_freq_regs_lut[i].r2b_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x2c, fc2580_freq_regs_lut[i].r2c_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x2d, fc2580_freq_regs_lut[i].r2d_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x30, fc2580_freq_regs_lut[i].r30_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x44, fc2580_freq_regs_lut[i].r44_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x50, fc2580_freq_regs_lut[i].r50_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x53, fc2580_freq_regs_lut[i].r53_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x5f, fc2580_freq_regs_lut[i].r5f_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x61, fc2580_freq_regs_lut[i].r61_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x62, fc2580_freq_regs_lut[i].r62_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x63, fc2580_freq_regs_lut[i].r63_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x67, fc2580_freq_regs_lut[i].r67_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x68, fc2580_freq_regs_lut[i].r68_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x69, fc2580_freq_regs_lut[i].r69_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x6a, fc2580_freq_regs_lut[i].r6a_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x6d, fc2580_freq_regs_lut[i].r6d_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x6e, fc2580_freq_regs_lut[i].r6e_val);
+	ret |= fc2580_wr_reg_ff(dev, 0x6f, fc2580_freq_regs_lut[i].r6f_val);
+	if (ret)
+		goto err;
+
+	return 0;
+err:
+	fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, ret);
+	return ret;
+}
 
 /*==============================================================================
-       fc2580 Xtal frequency Setting
+       fc2580 filter BW setting
 
-  This function is a generic function which sets
+  This function is a generic function which gets called to change Bandwidth
 
-  the frequency of xtal.
+  frequency of fc2580's channel selection filter
 
   <input parameter>
-
-  frequency
-  	frequency value of internal(external) Xtal(clock) in kHz unit.
-
+  filter_bw
+    1 : 1.53MHz(TDMB)
+	6 : 6MHz   (Bandwidth 6MHz)
+	7 : 6.8MHz (Bandwidth 7MHz)
+	8 : 7.8MHz (Bandwidth 8MHz)
 ==============================================================================*/
-//void fc2580_set_freq_xtal(unsigned int frequency) {
-//
-//	freq_xtal = frequency;
-//
-//}
+static int fc2580_set_filter(void *dev, unsigned char filter_bw)
+{
+	// Set tuner bandwidth mode.
+	unsigned int freq_xtal = (rtlsdr_get_tuner_clock(dev) + 500) / 1000;
+	unsigned char cal_mon = 0, i;
+	int result = 0;
 
+	switch (filter_bw) {
+	case 1: //1530 kHz
+		result |= fc2580_write(dev, 0x36, 0x1C);
+		result |= fc2580_write(dev, 0x37, (unsigned char)(4151*freq_xtal/1000000) );
+		result |= fc2580_write(dev, 0x39, 0x00);
+		break;
+	case 6: //6000 kHz
+		result |= fc2580_write(dev, 0x36, 0x18);
+		result |= fc2580_write(dev, 0x37, (unsigned char)(4400*freq_xtal/1000000) );
+		result |= fc2580_write(dev, 0x39, 0x00);
+		break;
+	case 7: //7000 kHz
+		result |= fc2580_write(dev, 0x36, 0x18);
+		result |= fc2580_write(dev, 0x37, (unsigned char)(3910*freq_xtal/1000000) );
+		result |= fc2580_write(dev, 0x39, 0x80);
+		break;
+	default:
+	case 8: //8000 kHz
+		result |= fc2580_write(dev, 0x36, 0x18);
+		result |= fc2580_write(dev, 0x37, (unsigned char)(3300*freq_xtal/1000000) );
+		result |= fc2580_write(dev, 0x39, 0x80);
+		break;
+	}
+	result |= fc2580_write(dev, 0x2E, 0x09);
+
+	for(i=0; i<5; i++)
+	{
+		fc2580_wait_msec(5);//wait 5ms
+		result &= fc2580_read(dev, 0x2F, &cal_mon);
+		if( (cal_mon & 0xC0) != 0xC0)
+		{
+			result |= fc2580_write(dev, 0x2E, 0x01);
+			result |= fc2580_write(dev, 0x2E, 0x09);
+		}
+		else
+			break;
+	}
+	result |= fc2580_write(dev, 0x2E, 0x01);
+
+	return result;
+}
+
+int fc2580_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
+{
+
+	if (bw < 2000000)
+		*applied_bw = 1500000;
+	else if (bw < 6500000)
+		*applied_bw = 6000000;
+	else if (bw < 7500000)
+		*applied_bw = 7000000;
+	else
+		*applied_bw = 8000000;
+	if(!apply)
+		return 0;
+	return fc2580_set_filter(dev, *applied_bw/1000000);
+}
+
+int fc2580_exit(void *dev)
+{
+	int ret;
+
+	ret = fc2580_write(dev, 0x02, 0x0a);
+	if (ret)
+		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, ret);
+	return ret;
+}
+
+int fc2580_set_gain(void *dev, int gain)
+{
+	return 0;
+}
+
+int fc2580_set_gain_mode(void *dev, int manual)
+{
+	int result = 0;
+	/*if( manual == 0)
+	{
+		result |= fc2580_write(dev, 0x45, 0x10);	//internal AGC
+		result |= fc2580_write(dev, 0x4C, 0x00);	//HOLD_AGC polarity
+	}
+	else
+	{
+		result |= fc2580_write(dev, 0x45, 0x20);	//Voltage Control Mode
+		result |= fc2580_write(dev, 0x4C, 0x02);	//HOLD_AGC polarity
+	}*/
+	return result;
+}

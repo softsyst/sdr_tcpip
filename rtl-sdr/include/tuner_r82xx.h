@@ -35,7 +35,9 @@
 #define R82XX_IF_FREQ		3570000
 
 #define REG_SHADOW_START	5
-#define NUM_REGS			32
+#define NUM_REGS			27
+#define NUM_IMR				5
+#define IMR_TRIAL			9
 
 #define VER_NUM				49
 
@@ -67,6 +69,7 @@ struct r82xx_config {
 	uint8_t i2c_addr;
 	uint32_t xtal;
 	enum r82xx_chip rafael_chip;
+	int use_diplexer;
 	int use_predetect;
 };
 
@@ -77,7 +80,6 @@ struct r82xx_priv {
 	enum r82xx_xtal_cap_value	xtal_cap_sel;
 	uint16_t					pll;	// kHz
 	uint32_t					int_freq;
-	uint8_t						fil_cal_code;
 	uint8_t						input;
 	int							has_lock;
 	int							init_done;
@@ -108,4 +110,5 @@ int r82xx_set_bandwidth(struct r82xx_priv *priv, int bandwidth,  uint32_t * appl
 int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned data, unsigned mask);
 int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *len, int *strength);
 int r82xx_set_sideband(struct r82xx_priv *priv, int sideband);
+const int *r82xx_get_gains(int *len);
 #endif
