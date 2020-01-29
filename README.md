@@ -1,5 +1,4 @@
 # sdr_tcpip
-# sdr_tcpip
 ## rtl_tcp
 **TCP/IP Server for I/Q data delivered by RTL-SDR dongles**
 - The rtl_tcp server, based on the well-known software of **osmocom**, has significantly been enhanced and is continuously being improved by [rundfunkforum](https://www.rundfunkforum.de/viewforum.php?f=11) user **Oldenburger**.
