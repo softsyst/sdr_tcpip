@@ -144,7 +144,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;_LIB;rtlsdr_EXPORTS</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\posix\include;..\Lib\libusb-1.0.21\libusb;.\include;.\src</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\posix\include;..\Lib\libusb-1.0.21\libusb;.\include;.\src;..\\libusb-1.0.21\libusb</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -168,6 +168,7 @@
     <ClCompile Include="src\tuner_r82xx.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\libusb-1.0.21\libusb\libusb.h" />
     <ClInclude Include="include\reg_field.h" />
     <ClInclude Include="include\rtl-sdr.h" />
     <ClInclude Include="include\rtl-sdr_export.h" />

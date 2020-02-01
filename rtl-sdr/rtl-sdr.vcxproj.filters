@@ -65,5 +65,8 @@
     <ClInclude Include="src\convenience\convenience.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\libusb-1.0.21\libusb\libusb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

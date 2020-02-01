@@ -173,9 +173,9 @@
     <ClCompile Include="..\libusb\os\windows_winusb.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\libusb\libusb.h" />
     <ClInclude Include=".\config.h" />
     <ClInclude Include="..\libusb\hotplug.h" />
-    <ClInclude Include="..\libusb\libusb.h" />
     <ClInclude Include="..\libusb\libusbi.h" />
     <ClInclude Include="..\libusb\os\poll_windows.h" />
     <ClInclude Include="..\libusb\os\threads_windows.h" />
