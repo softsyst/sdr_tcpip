@@ -30,7 +30,6 @@
 #include <tuner_e4k.h>
 #include <rtlsdr_i2c.h>
 
-
 /* If this is defined, the limits are somewhat relaxed compared to what the
  * vendor claims is possible */
 #define OUT_OF_SPEC
@@ -449,7 +448,6 @@ static uint32_t e4k_compute_pll_params(struct e4k_pll_params *oscp, uint32_t fos
 	oscp->flo = flo;
 	oscp->intended_flo = intended_flo;
 	oscp->r = r;
-//	oscp->r_idx = pll_vars[i].reg_synth7 & 0x0;
 	oscp->threephase = three_phase_mixing;
 	oscp->x = x;
 	oscp->z = z;
@@ -514,7 +512,6 @@ int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
 		fprintf(stderr, "[E4K] PLL not locked for %u Hz!\n", freq);
 		return -1;
 	}
-
 	return 0;
 }
 
@@ -625,140 +622,70 @@ int e4k_if_gain_set(struct e4k_state *e4k, uint8_t stage, int8_t value)
 	return e4k_reg_set_mask(e4k, field->reg, mask, rc << field->shift);
 }
 
-static int e4k_mixer_gain_set(struct e4k_state *e4k, int8_t value)
-{
-	uint8_t bit;
-
-	switch (value) {
-	case 4:
-		bit = 0;
-		break;
-	case 12:
-		bit = 1;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	return e4k_reg_set_mask(e4k, E4K_REG_GAIN2, 1, bit);
-}
-
-static int e4k_commonmode_set(struct e4k_state *e4k, int8_t value)
-{
-	if(value < 0)
-		return -EINVAL;
-	else if(value > 7)
-		return -EINVAL;
-
-	return e4k_reg_set_mask(e4k, E4K_REG_DC7, 7, value);
-}
-
 /***********************************************************************
  * DC Offset */
 
-static int e4k_manual_dc_offset(struct e4k_state *e4k, int8_t iofs, int8_t irange, int8_t qofs, int8_t qrange)
-{
-	int res;
-
-	if((iofs < 0x00) || (iofs > 0x3f))
-		return -EINVAL;
-	if((irange < 0x00) || (irange > 0x03))
-		return -EINVAL;
-	if((qofs < 0x00) || (qofs > 0x3f))
-		return -EINVAL;
-	if((qrange < 0x00) || (qrange > 0x03))
-		return -EINVAL;
-
-	res = e4k_reg_set_mask(e4k, E4K_REG_DC2, 0x3f, iofs);
-	if(res < 0)
-		return res;
-
-	res = e4k_reg_set_mask(e4k, E4K_REG_DC3, 0x3f, qofs);
-	if(res < 0)
-		return res;
-
-	res = e4k_reg_set_mask(e4k, E4K_REG_DC4, 0x33, (qrange << 4) | irange);
-	return res;
-}
-
-/*! \brief Perform a DC offset calibration right now
- *  \param [e4k] handle to the tuner chip
- */
-static int e4k_dc_offset_calibrate(struct e4k_state *e4k)
-{
-	/* make sure the DC range detector is enabled */
-	e4k_reg_set_mask(e4k, E4K_REG_DC5, E4K_DC5_RANGE_DET_EN, E4K_DC5_RANGE_DET_EN);
-
-	return e4k_reg_write(e4k, E4K_REG_DC1, 0x01);
-}
-
-
-static const int8_t if_gains_max[] = {
-	0, 6, 9, 9, 2, 15, 15
-};
-
-struct gain_comb {
-	int8_t mixer_gain;
-	int8_t if1_gain;
-	uint8_t reg;
-};
-
-static const struct gain_comb dc_gain_comb[] = {
-	{ 4,  -3, 0x50 },
-	{ 4,   6, 0x51 },
-	{ 12, -3, 0x52 },
-	{ 12,  6, 0x53 },
-};
-
-#define TO_LUT(offset, range)	(offset | (range << 6))
-
 static int e4k_dc_offset_gen_table(struct e4k_state *e4k)
 {
-	uint32_t i;
-
-	/* FIXME: read ont current gain values and write them back
-	 * before returning to the caller */
+	int ret, i;
+	uint8_t buf[3], i_data[4], q_data[4], tmp;
 
 	/* disable auto mixer gain */
-	e4k_reg_set_mask(e4k, E4K_REG_AGC7, E4K_AGC7_MIX_GAIN_AUTO, 0);
+	ret = e4k_reg_set_mask(e4k, E4K_REG_AGC7, E4K_AGC7_MIX_GAIN_AUTO, 0);
+	if (ret)
+		goto err;
 
-	/* set LNA/IF gain to full manual */
-	e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK,
-			 E4K_AGC_MOD_SERIAL);
+	/* gain control manual */
+	ret = e4k_reg_write(e4k, E4K_REG_AGC1, 0x00);
+	if (ret)
+		goto err;
 
-	/* set all 'other' gains to maximum */
-	for (i = 2; i <= 6; i++)
-		e4k_if_gain_set(e4k, i, if_gains_max[i]);
+	/* DC offset */
+	for (i = 0; i < 4; i++) {
+		if (i == 0)
+		{
+			buf[0] = 0x00; //Mixer gain 4dB
+			buf[1] = 0x7e; //IF stage 1 -3dB
+			buf[2] = 0x24; //IF stages 2-6 maximal
+			ret = e4k_write_array(e4k, E4K_REG_GAIN2, buf, 3);
+		}
+		else if (i == 1)
+			ret = e4k_reg_write(e4k, E4K_REG_GAIN3, 0x7f); //IF stage 1 6dB
+		else if (i == 2)
+			ret = e4k_reg_write(e4k, E4K_REG_GAIN2, 0x01); //Mixer gain 12dB
+		else
+			ret = e4k_reg_write(e4k, E4K_REG_GAIN3, 0x7e); //IF stage 1 -3dB
+		if (ret)
+			goto err;
 
-	/* iterate over all mixer + if_stage_1 gain combinations */
-	for (i = 0; i < ARRAY_SIZE(dc_gain_comb); i++) {
-		uint8_t offs_i, offs_q, range, range_i, range_q;
+		ret = e4k_reg_write(e4k, E4K_REG_DC1, 0x01); //DC offset cal request
+		if (ret)
+			goto err;
 
-		/* set the combination of mixer / if1 gain */
-		e4k_mixer_gain_set(e4k, dc_gain_comb[i].mixer_gain);
-		e4k_if_gain_set(e4k, 1, dc_gain_comb[i].if1_gain);
+		ret = e4k_read_array(e4k, E4K_REG_DC2, buf, 3);
+		if (ret)
+			goto err;
 
-		/* perform actual calibration */
-		e4k_dc_offset_calibrate(e4k);
-
-		/* extract I/Q offset and range values */
-		offs_i = e4k_reg_read(e4k, E4K_REG_DC2) & 0x3f;
-		offs_q = e4k_reg_read(e4k, E4K_REG_DC3) & 0x3f;
-		range  = e4k_reg_read(e4k, E4K_REG_DC4);
-		range_i = range & 0x3;
-		range_q = (range >> 4) & 0x3;
-
-		fprintf(stderr, "[E4K] Table %u I=%u/%u, Q=%u/%u\n",
-			i, range_i, offs_i, range_q, offs_q);
-
-		/* write into the table */
-		e4k_reg_write(e4k, dc_gain_comb[i].reg,
-			      TO_LUT(offs_q, range_q));
-		e4k_reg_write(e4k, dc_gain_comb[i].reg + 0x10,
-			      TO_LUT(offs_i, range_i));
+		i_data[i] = (((buf[2] >> 0) & 0x3) << 6) | (buf[0] & 0x3f);
+		q_data[i] = (((buf[2] >> 4) & 0x3) << 6) | (buf[1] & 0x3f);
 	}
+	//swap(q_data[2], q_data[3]);
+	tmp = q_data[2];
+	q_data[2] = q_data[3];
+	q_data[3] = tmp;
+	//swap(i_data[2], i_data[3]);
+	tmp = i_data[2];
+	i_data[2] = i_data[3];
+	i_data[3] = tmp;
 
-	return 0;
+	ret = e4k_write_array(e4k, E4K_REG_QLUT0, q_data, 4);
+	if (ret)
+		goto err;
+
+	ret = e4k_write_array(e4k, E4K_REG_ILUT0, i_data, 4);
+
+err:
+	return ret;
 }
 
 /***********************************************************************
@@ -810,24 +737,30 @@ int e4k_init(struct e4k_state *e4k)
 	data[1] = 0x07;
 	e4k_write_array(e4k, 0x9f, data, 2);
 
-#if 0
-	/* Set common mode voltage a bit higher for more margin 850 mv */
-	e4k_commonmode_set(e4k, 4);
-
-	/* Initialize DC offset lookup tables */
-	e4k_dc_offset_gen_table(e4k);
+	/* DC offset control */
+	e4k_reg_write(e4k, E4K_REG_DC5, 0x1f);
 
 	/* Enable time variant DC correction */
 	data[0] = 0x01;
 	data[1] = 0x01;
 	e4k_write_array(e4k, E4K_REG_DCTIME1, data, 2);
-#endif
 
-	/* Set LNA mode to manual */
+	/* Set common mode voltage a bit higher for more margin 850 mv */
+	e4k_reg_set_mask(e4k, E4K_REG_DC7, 7, 4);
+
+	/* Set the most narrow filter we can possibly use */
+	data[0] = 0xff;
+	data[1] = 0x1f;
+	e4k_write_array(e4k, E4K_REG_FILT2, data, 2);
+
+	/* Set LNA */
 	data[0] = 32;   /* High threshold */
 	data[1] = 14;	/* Low threshold */
 	data[2] = 0x18;	/* LNA calib + loop rate */
 	e4k_write_array(e4k, E4K_REG_AGC4, data, 3);
+
+	/* Initialize DC offset lookup tables */
+	e4k_dc_offset_gen_table(e4k);
 
 	/* Set Mixer Gain Control to auto */
 	e4k_reg_write(e4k, E4K_REG_AGC7, 0x15);
@@ -842,29 +775,20 @@ int e4k_init(struct e4k_state *e4k)
 	/* Use auto-gain as default */
 	e4k_enable_manual_gain(e4k, 0);
 
-	/* Set the most narrow filter we can possibly use */
-	data[0] = 0xff;
-	data[1] = 0x1f;
-	e4k_write_array(e4k, E4K_REG_FILT2, data, 2);
-
-	/* Disable time variant DC correction and LUT */
-	e4k_reg_set_mask(e4k, E4K_REG_DC5, 0x03, 0);
-	e4k_reg_set_mask(e4k, E4K_REG_DCTIME1, 0x03, 0);
-	e4k_reg_set_mask(e4k, E4K_REG_DCTIME2, 0x03, 0);
-
 	return 0;
 }
+
 //sensitivity mode
 static const uint8_t e4k_reg21[] = {0,  0,   0,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1};
 static const uint8_t e4k_reg22[] = {0,  2,   4,0x20,0x22,0x24,0x21,0x23,0x25,0x27,0x2f,0x37,0x3f,0x3f,0x3f,0x3f,0x3f,0x3f,0x3f,0x3f,0x3f,0x7f};
 static const uint8_t e4k_reg23[] = {0,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   2,   3,   4,0x0c,0x14,0x1c,0x24,0x24};
-
 /*
 //linearity mode
 static const uint8_t e4k_reg21[] = {0,  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   1,   1};
 static const uint8_t e4k_reg22[] = {0,  0,   0,   0,   0,   0,   0,   0,   0,   8,0x10,0x18,0x1a,0x1c,0x19,0x1b,0x1d,0x1f,0x7f,0x3d,0x3f,0x7f};
 static const uint8_t e4k_reg23[] = {0,  8,0x10,0x18,0x20,0x21,0x22,0x23,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24,0x24};
 */
+
 /* all gain values are expressed in tenths of a dB */
 static const int     e4k_gains[] = {0, 30,  60,  90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 620};
 
@@ -928,4 +852,3 @@ int e4k_get_i2c_register(struct e4k_state *e4k, uint8_t *data, int *len, int *st
 	*strength = e4k_get_signal_strength(data);
 	return 0;
 }
-
