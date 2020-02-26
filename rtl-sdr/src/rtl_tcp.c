@@ -47,7 +47,7 @@
 #include "convenience/convenience.h"
 
 #ifdef _WIN32
-//#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 typedef int socklen_t;
 
@@ -425,7 +425,7 @@ int main(int argc, char **argv)
 	 *   512 samples @  8 kHz  = 64 ms
 	 */
 	//-cs- uint32_t buf_len = 32 * 512;
-	uint32_t buf_len = 4 *32 * 512;
+	uint32_t buf_len = 2 *32 * 512;
 	int dev_index = 0;
 	int dev_given = 0;
 	int gain = 0;
@@ -450,7 +450,7 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.88 for QIRX, 25.01.2020\n\n");
+		   "Version 0.89 for QIRX, %s\n\n", __DATE__);
 
 	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:p:us:vr:w:D:TP:")) != -1) {
 		switch (opt) {
