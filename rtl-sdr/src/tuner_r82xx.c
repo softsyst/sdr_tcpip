@@ -1,3 +1,4 @@
+
 /*
  * Rafael Micro R820T/R828D driver
  *
@@ -24,8 +25,10 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "rtlsdr_i2c.h"
 #include "tuner_r82xx.h"
@@ -33,14 +36,21 @@
 #define MHZ(x)		((x)*1000*1000)
 #define KHZ(x)		((x)*1000)
 
+#ifndef _WIN32
+#include <unistd.h>
+#else
+#include <windows.h>
+#define usleep(x) Sleep(x/1000)
+#endif
+
 /*
 Reg		Bitmap	Symbol			Description
 ------------------------------------------------------------------------------------
 R0		[7:0]	CHIP_ID			reference check point for read mode: 0x96
 0x00
 ------------------------------------------------------------------------------------
-R1		[7:0]	IMR
-0x01
+R1		[7:6]					10
+0x01	[5:0]	ADC				Analog-Digital Converter
 ------------------------------------------------------------------------------------
 R2		[7]						0
 0x02	[6:0]	VCO_INDICATOR	Bit 6 = 1: PLL has locked
@@ -106,7 +116,7 @@ R10		[7] 	PWD_FILT		Filter power on/off
 0x0A							0: channel filter off, 1: on
 		[6:5] 	PW_FILT			Filter power control
 								00: highest power, 11: lowest power
-		[4]						1
+		[4]		filt_q			1
 		[3:0] 	FILT_CODE		Filter bandwidth manual fine tune
 								0000 Widest, 1111 narrowest
 ------------------------------------------------------------------------------------
@@ -114,12 +124,13 @@ R11		[7:5] 	FILT_BW			Filter bandwidth manual course tunnel
 0x0B							000: widest
 								010 or 001: middle
 								111: narrowest
-		[4]						0
+		[4]		CAL_TRIGGER		0
 		[3:0] 	HPF				High pass filter corner control
 								0000: highest
 								1111: lowest
 ------------------------------------------------------------------------------------
-R12		[7]						1
+R12		[7]		SW_ADC			Switch Analog-Digital Converter
+								0: on, 1: off
 0x0C	[6] 	PWD_VGA			VGA power control
 								0: vga power off, 1: vga power on
 		[5]						1
@@ -211,7 +222,7 @@ R23		[7:6] 	PW_LDO_D		PLL digital low drop out regulator supply current switch
 		[2:0]					100
 ------------------------------------------------------------------------------------
 R24		[7:6]					01
-		[5]						ring_seldev[0]
+		[5]		ring_div[0]		ring_div bit 0
 0x18	[4] 					ring power
 								0: off, 1:on
 		[3:0]					n_ring
@@ -225,7 +236,7 @@ R25		[7] 	PWD_RFFILT		RF Filter power
 								0:agc=agc_in
 								1:agc=agc_in2
 		[3:2]					11
-		[1:0]					ring_seldiv[1:2]
+		[1:0]	ring_div[2:1]	cal_freq = ring_vco / divisor
 								000: ring_freq = ring_vco / 4
 								001: ring_freq = ring_vco / 6
 								010: ring_freq = ring_vco / 8
@@ -279,6 +290,7 @@ R31		[7]						Loop through attenuation
 0x1F							0: Enable, 1: Disable
 		[6:2]					10000
 		[1:0]					pw_ring
+								0: -5dB, 1: 0dB, 2: -8dB, 3: -3dB
 ------------------------------------------------------------------------------------
 R0...R4 read, R5...R15 read/write, R16..R31 write
 */
@@ -303,7 +315,7 @@ static const uint8_t r82xx_init_array[] = {
 	0x6c, 	//Reg 0x10
 	0xbb, 	//Reg 0x11
 	0x80, 	//Reg 0x12
-	VER_NUM & 0x3f,	//Reg 0x13
+	VER_NUM,//Reg 0x13
 	0x0f, 	//Reg 0x14
 	0x00, 	//Reg 0x15
 	0xc0, 	//Reg 0x16
@@ -533,7 +545,10 @@ static int r82xx_write_reg_mask(struct r82xx_priv *priv, uint8_t reg, uint8_t va
 
 	val = (rc & ~bit_mask) | (val & bit_mask);
 
-	return r82xx_write(priv, reg, &val, 1);
+	if(rc == val)
+		return 0;
+	else
+		return r82xx_write(priv, reg, &val, 1);
 }
 
 
@@ -568,8 +583,8 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *val, int len)
 	return 0;
 }
 
-
-/*static void print_registers(struct r82xx_priv *priv)
+/*
+static void print_registers(struct r82xx_priv *priv)
 {
 	uint8_t data[5];
 	int rc;
@@ -695,12 +710,13 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 		mix_div = mix_div << 1;
 	}
 
+	if (priv->cfg->rafael_chip == CHIP_R828D)
+		vco_power_ref = 1;
+
+	usleep(10000);
 	rc = r82xx_read(priv, data, sizeof(data));
 	if (rc < 0)
 		return rc;
-
-	if (priv->cfg->rafael_chip == CHIP_R828D)
-		vco_power_ref = 1;
 
 	vco_fine_tune = (data[4] & 0x30) >> 4;
 
@@ -897,12 +913,22 @@ static const int r82xx_lna_gains[]  = {
 static const int r82xx_mixer_gains[]  = {
 	0, 16, 38, 56, 70, 84, 98, 112, 126, 140, 154, 168, 180, 180, 180, 180
 };
-static int r82xx_get_signal_strength(unsigned char* data)
+static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* data)
 {
-	int vga_gain = (data[0x0c] & 0x0f) * 35;
-	int lna_gain = r82xx_lna_gains[data[3] & 0xf];
-	int mixer_gain = r82xx_mixer_gains[(data[3] >> 4) & 0xf];
-	return 1057 - vga_gain - lna_gain - mixer_gain;
+	int rc;
+	uint8_t mixer_gain = (data[3] >> 4) & 0x0f;
+
+	/* set IMR_G */
+	if(priv->init_done && (mixer_gain != priv->old_gain))
+	{
+		rc = r82xx_write_reg_mask(priv, 0x08, priv->reg8[mixer_gain], 0x3f);
+		if(rc < 0)
+			return rc;
+		priv->old_gain = mixer_gain;
+	}
+
+	/* Sum_of_all_gains - vga_gain - lna_gain - mixer_gain */
+	return 1057 - (data[0x0c] & 0x0f) * 35 - r82xx_lna_gains[data[3] & 0xf] - r82xx_mixer_gains[mixer_gain];
 }
 
 int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *len, int *strength)
@@ -916,14 +942,14 @@ int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *le
 		return rc;
 	for (i = 5; i < 32; i++)
 		data[i] = r82xx_read_cache_reg(priv, i);
-	*strength = r82xx_get_signal_strength(data);
+	*strength = r82xx_get_signal_strength(priv, data);
 	return 0;
 }
 
-static const int r82xx_bws[]=     {  300,  450,  600,  900, 1100, 1200, 1300, 1500, 1800, 2200, 3000, 5000 };
+static const int r82xx_bws[]=     {  400,  500,  620,  900, 1150, 1250, 1350, 1530, 1800, 2200, 3000, 5000 };
 static const uint8_t r82xx_0xa[]= { 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0e, 0x0f, 0x0f, 0x04, 0x0b };
 static const uint8_t r82xx_0xb[]= { 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xaf, 0x8f, 0x8f, 0x6b };
-static const int r82xx_if[]  =    { 1700, 1650, 1600, 1500, 1400, 1350, 1320, 1270, 1400, 1600, 2000, 3570 };
+static const int r82xx_if[]  =    { 1780, 1710, 1640, 1500, 1380, 1340, 1300, 1260, 1370, 1560, 2000, 3570 };
 
 int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t * applied_bw, int apply)
 {
@@ -941,7 +967,6 @@ int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t * applied_bw, 
 	else
 		return 0;
 
-	/* Register 0xA = R10 */
 	rc = r82xx_write_reg_mask(priv, 0x0a, r82xx_0xa[i], 0x0f);
 	if (rc < 0)
 		return rc;
@@ -1045,9 +1070,243 @@ int r82xx_standby(struct r82xx_priv *priv)
 		return rc;
 	rc = r82xx_write_reg(priv, 0x19, 0x0c);
 
-	/* Force initial calibration */
-	priv->type = -1;
+	return rc;
+}
 
+static int r82xx_multi_read(struct r82xx_priv *priv)
+{
+	int rc, i;
+	uint8_t data[2];
+	uint8_t buf[4];
+	int sum = 0;
+
+	usleep(10000);
+	for (i = 0; i < 4; i++) {
+		rc = r82xx_read(priv, data, sizeof(data));
+		if (rc < 0)
+			return rc;
+		data[1] &= 0x3f;
+		sum += data[1];
+		buf[i] = data[1];
+	}
+	//printf("data[1] = %02x %02x %02x %02x\n", buf[0],buf[1],buf[2],buf[3]);
+	return sum;
+}
+
+/*const uint16_t adc[] = {
+	460,450,435,420,410,400,390,380,376,372,368,364,360,355,350,345,
+	340,336,332,328,324,320,316,312,308,304,300,297,294,291,287,283,
+	280,276,272,268,264,260,256,252,248,244,240,230,220,213,207,200,
+	190,180,170,160,150,140,130,120,110,100, 75, 60,  4,  2,  1,  0
+};*/
+
+
+static int test_imrg(struct r82xx_priv *priv, int start, int end, int *min)
+{
+	int i, rc;
+	int reg8 = 0;
+
+	for(i=start; i<end; i++)
+	{
+		rc = r82xx_write_reg_mask(priv, 0x08, i, 0x3f);
+		if (rc < 0)
+			return rc;
+		rc = r82xx_multi_read(priv);
+		if (rc < 0)
+			return rc;
+		if (rc < *min)
+		{
+			*min = rc;
+			reg8 = i;
+			//printf("Reg8=%02x, sum=%d\n", reg8, rc);
+		}
+		else
+			break;
+	}
+	return reg8;
+}
+
+static int r82xx_imr(struct r82xx_priv *priv, uint8_t range)
+{
+	uint8_t ring_div[] =	{  48,  32,  24,  16,  12,   8,   6,   4};
+	uint8_t ring_se23[] =	{0x20,0x00,0x20,0x00,0x20,0x00,0x20,0x00};
+	uint8_t ring_seldiv[] =	{   3,   3,   2,   2,   1,   1,   0,   0};
+
+							//0  0 -3 -5 -5 -8 -8 -3 -5 -5 -8 -8 -8 dB
+	uint8_t ring_att[] =	{ 1, 1, 3, 0, 0, 2, 2, 3, 0, 0, 2, 2, 2 };
+	uint8_t n_ring = 15;
+	int rc, i, min;
+	uint32_t ring_freq, ring_ref;
+	uint8_t vga;
+	uint8_t gain;
+
+	if (priv->cfg->xtal > 24000000)
+		ring_ref = priv->cfg->xtal / 2000;
+	else
+		ring_ref = priv->cfg->xtal / 1000;
+
+	//ring_vco = (16 + n_ring) * 8 * ring_ref;
+	for (i = 0; i < 16; i++) {
+		if ((16 + i) * 8 * ring_ref >= 3100000) {
+			n_ring = i;
+			break;
+		}
+	}
+
+	range &= 7;
+	ring_freq = ((16 + n_ring) * 8 * ring_ref) / ring_div[range];
+
+	/* n_ring, ring_se23 */
+	rc = r82xx_write_reg_mask(priv, 0x18, ring_se23[range] | n_ring, 0x2f);
+	if (rc < 0)
+		return rc;
+
+	/* ring_sediv */
+	rc = r82xx_write_reg_mask(priv, 0x19, ring_seldiv[range], 0x03);
+	if (rc < 0)
+		return rc;
+
+	rc = r82xx_set_freq(priv, ring_freq * 1000 - 2 * priv->int_freq); //Image frequency
+	if (rc < 0)
+		return rc;
+	//printf("Freq=%dkHz\n", ring_freq - priv->int_freq / 500);
+
+	printf("IMR_G =");
+	for(gain=0; gain < 13; gain++)
+	{
+		rc = r82xx_write_reg_mask(priv, 0x07, gain, 0x0f);
+		if (rc < 0)
+			return rc;
+		if(gain < 7)
+			//Filter gain +7 db
+			rc = r82xx_write_reg_mask(priv, 0x06, 0x20, 0x20);
+		else
+			//Filter gain +0 db
+			rc = r82xx_write_reg_mask(priv, 0x06, 0x00, 0x20);
+		if (rc < 0)
+			return rc;
+
+		//set optimal level
+		rc = r82xx_write_reg_mask(priv, 0x1f, ring_att[gain], 0x03);
+		if (rc < 0)
+			return rc;
+
+		rc = r82xx_write_reg_mask(priv, 0x08, 0, 0x3f);
+		if (rc < 0)
+			goto err;
+
+		/* decrease vga power to let image significant */
+		for(vga=15; vga>0; vga--)
+		{
+			rc = r82xx_write_reg_mask(priv, 0x0c, vga, 0x0f);
+			if (rc < 0)
+				goto err;
+			rc = r82xx_multi_read(priv);
+			if (rc < 0)
+				goto err;
+			if (rc < 160)
+				break;
+		}
+	    //if(gain == 0) print_registers(priv);
+		min = rc;
+		//printf("Mixer=%d, VGA=%d\n", gain, vga);
+
+		rc = test_imrg(priv, 0x02, 0x0a, &min);
+		if(rc==0)
+			rc = test_imrg(priv, 0x22, 0x2a, &min);
+		if(rc==0)
+			rc = test_imrg(priv, 0x01, 0x02, &min);
+		if(rc==0)
+			rc = test_imrg(priv, 0x21, 0x22, &min);
+		if (rc < 0)
+			goto err;
+		priv->reg8[gain] = rc;
+		printf(" %02X", rc);
+	}
+	printf("\n");
+
+	for(gain = 13; gain < 16; gain++)
+		priv->reg8[gain] = priv->reg8[12];
+	return 0;
+
+err:
+	if (rc < 0)
+		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, rc);
+	return rc;
+}
+
+static	const uint8_t r82xx_calib_array[] = {
+	0xa0,	//Reg 0x05  lna off (air-in off)
+	0x32, 	//Reg 0x06	Set filt_3dB
+	0x60,	//Reg 0x07	mixer gain mode = manual, gain = 0 dB
+	0xc0, 	//Reg 0x08
+	0x40, 	//Reg 0x09
+	0xdb, 	//Reg 0x0a
+	0x6b,	//Reg 0x0b
+	0x6f, 	//Reg 0x0c	adc=on, vga code mode, gain = 52.5 dB
+	0x53, 	//Reg 0x0d
+	0x75, 	//Reg 0x0e
+	0x60,	//Reg 0x0f	ring clk = on
+	0x6c, 	//Reg 0x10
+	0xbb, 	//Reg 0x11
+	0x80, 	//Reg 0x12
+	VER_NUM,//Reg 0x13
+	0x0f, 	//Reg 0x14
+	0x00, 	//Reg 0x15
+	0xc0, 	//Reg 0x16
+	0x30,	//Reg 0x17
+	0x58, 	//Reg 0x18	ring power = on
+	0xec, 	//Reg 0x19
+	0x60, 	//Reg 0x1a
+	0x00,	//Reg 0x1b
+	0x26,	//Reg 0x1c	from ring = ring pll in
+	0xdd, 	//Reg 0x1d
+	0x8e, 	//Reg 0x1e	sw_pdect = det3
+	0x41	//Reg 0x1f	pw_ring = 0 dB
+};
+
+static int r82xx_imr_callibrate(struct r82xx_priv *priv)
+{
+	int rc;
+	uint8_t i;
+	uint32_t applied_bw;
+	time_t starttime;
+
+	for(i = 0; i < 16; i++)
+		priv->reg8[i] = 0;
+
+	/*
+	 * Disables IMR calibration.
+	 */
+	if (priv->imr_done) {
+		priv->init_done = 1;
+		return 0;
+	}
+	starttime = time(NULL);
+
+	/* Initialize registers */
+	rc = r82xx_write(priv, 0x05, r82xx_calib_array, sizeof(r82xx_calib_array));
+	if (rc < 0)
+		goto err;
+
+	rc = r82xx_set_bandwidth(priv, 400000, &applied_bw, 1);
+	if (rc < 0)
+		goto err;
+
+	//for(i = 0; i < 10; i++)
+	rc = r82xx_imr(priv, 1);
+	if (rc < 0)
+		goto err;
+
+	priv->old_gain = 255;
+	priv->init_done = 1;
+	priv->imr_done = 1;
+	//printf("%d sec\n", (int)(time(NULL)-starttime));
+	return 0;
+
+err:
+	if (rc < 0)
+		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, rc);
 	return rc;
 }
 
@@ -1061,15 +1320,18 @@ int r82xx_init(struct r82xx_priv *priv)
 	/* TODO: R828D might need r82xx_xtal_check() */
 	priv->xtal_cap_sel = XTAL_HIGH_CAP_0P;
 
+	priv->int_freq = 3570 * 1000;
+	priv->sideband = 0;
+	priv->imr_done = 0;
+
+	rc = r82xx_imr_callibrate(priv);
+	if (rc < 0)
+		goto err;
+
 	/* Initialize registers */
 	rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array));
 	if (rc < 0)
 		goto err;
-
-	priv->int_freq = 3570 * 1000;
-	priv->sideband = 0;
-	priv->type =  TUNER_DIGITAL_TV;
-	priv->bw = 5;
 
 	rc = r82xx_sysfreq_sel(priv, TUNER_DIGITAL_TV);
 
