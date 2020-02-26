@@ -36,8 +36,6 @@
 
 #define REG_SHADOW_START	5
 #define NUM_REGS			27
-#define NUM_IMR				5
-#define IMR_TRIAL			9
 
 #define VER_NUM				49
 
@@ -78,17 +76,15 @@ struct r82xx_priv {
 	uint8_t						regs[NUM_REGS];
 	uint8_t						buf[NUM_REGS + 1];
 	enum r82xx_xtal_cap_value	xtal_cap_sel;
-	uint16_t					pll;	// kHz
 	uint32_t					int_freq;
 	uint8_t						input;
+	uint8_t						old_gain;
+	uint8_t						reg8[16];
 	int							has_lock;
+	int							imr_done;
 	int							init_done;
 	int							sideband;
-
-	// Store current mode
-	enum r82xx_tuner_type	type;
-	uint32_t				bw;	// in MHz
-	void 					*rtl_dev;
+	void 						*rtl_dev;
 };
 
 struct r82xx_freq_range {
