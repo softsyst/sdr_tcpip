@@ -1,4 +1,3 @@
-
 /*
  * Fitipower FC0012/FC0013 tuner driver
  *
@@ -150,10 +149,10 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
  * RF_OUTDIV_B		0x06	1	Set to select 3 instead of 2 for the
  *								RF output divider
  * VCO_SPEED		0x06	3	Select tuning range of VCO:
- *								 0 = Low range, (ca. 1.1 - 1.5GHz)
- *								 1 = High range (ca. 1.4 - 1.8GHz)
- * BANDWIDTH		0x06	6-7	Set bandwidth. 6MHz = 0x80, 7MHz=0x40
- *								8MHz=0x00
+ *								 0 = Low range, (ca. 2.2 - 3.0GHz)
+ *								 1 = High range (ca. 2.8 - 3.6GHz)
+ * BANDWIDTH		0x06	6-7	Set bandwidth
+ *								 6MHz=0x80, 7MHz=0x40, 8MHz=0x00
  * XTAL_SPEED		0x07	5	Set to 1 for 28.8MHz Crystal input
  *								or 0 for 36MHz
  * <agc params>		0x08	0-7
@@ -174,9 +173,26 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
  *								(fast lock?)
  * VCO_VOLTAGE		0x0e	0-6	Read Control voltage of VCO
  *								(big value -> low freq)
- * IF_GAIN			0x12	0-4
+ *							7   ?
+ * IF_GAIN			0x12	0-4	2 dB/step
  * LNA_GAIN			0x13	3-4	Low noise amp gain
+ * 								 0x02=min, 0x08=middle, 0x10=max
  * LNA_COMPS		0x15	3	?
+ */
+
+/* Incomplete list of FC0013 register settings:
+ *
+ * Name				Reg		BitsDesc
+ * CHIP_ID			0x00	0-7	Chip ID (constant 0xA3)
+ * VHF_TRACK_EN		0x07	4	1= Enable VHF track filter
+ * LNA_FORCE		0x0d	0	LNA Gain: 1=variable, 0=maximal
+ *					0x0d	4	1 = forcing rc_cal
+ * RC_cal value		0x10	0-3	rc_cal value
+ * IF_GAIN			0x13	0-4	2 dB/step
+ * LNA_GAIN			0x14	0-4	Low noise amp gain
+ * 								 0x02=min, 0x08=middle, 0x10=max
+ * BAND				0x14	5-6	0x00=VHF, 0x20=GPS, 0x40=UHF
+ * VHF_TRACK_FILTER	0x1d	2-4 VHF track filter
  */
 
 int fc0012_init(void *dev)
@@ -225,15 +241,14 @@ int fc0013_init(void *dev)
 		0xb8,	/* reg. 0x0a: Disable LO Test Buffer */
 		0x82,	/* reg. 0x0b: CHECK */
 		0xfc,	/* reg. 0x0c: depending on AGC Up-Down mode, may need 0xf8 */
-		0x02,	/* reg. 0x0d: AGC Not Forcing & LNA Forcing, may need 0x02 */
+		0x01,	/* reg. 0x0d: AGC Not Forcing & LNA Forcing, may need 0x02 */
 		0x00,	/* reg. 0x0e */
 		0x00,	/* reg. 0x0f */
 		0x00,	/* reg. 0x10 */
 		0x00,	/* reg. 0x11 */
 		0x00,	/* reg. 0x12 */
 		0x00,	/* reg. 0x13 */
-		0x48,	/* reg. 0x14: DVB-t Middle Gain, UHF.
-			   				  High Gain: 0x50, Low Gain: 0x40 */
+		0x08,	/* reg. 0x14: VHF Middle Gain */
 		0x01,	/* reg. 0x15 */
 	};
 	return fc001x_write(dev, 1, reg, sizeof(reg));
@@ -248,23 +263,22 @@ static int fc0013_set_vhf_track(void *dev, uint32_t freq)
 	if (ret)
 		goto error_out;
 	tmp &= 0xe3;
-	if (freq <= 177500000) {		/* VHF Track: 7 */
+	if (freq <= 177500000) 		/* VHF Track: 7 */
 		ret = fc001x_writereg(dev, 0x1d, tmp | 0x1c);
-	} else if (freq <= 184500000) {	/* VHF Track: 6 */
+	else if (freq <= 184500000)	/* VHF Track: 6 */
 		ret = fc001x_writereg(dev, 0x1d, tmp | 0x18);
-	} else if (freq <= 191500000) {	/* VHF Track: 5 */
+	else if (freq <= 191500000)	/* VHF Track: 5 */
 		ret = fc001x_writereg(dev, 0x1d, tmp | 0x14);
-	} else if (freq <= 198500000) {	/* VHF Track: 4 */
+	else if (freq <= 198500000)	/* VHF Track: 4 */
 		ret = fc001x_writereg(dev, 0x1d, tmp | 0x10);
-	} else if (freq <= 205500000) {	/* VHF Track: 3 */
+	else if (freq <= 205500000)	/* VHF Track: 3 */
 		ret = fc001x_writereg(dev, 0x1d, tmp | 0x0c);
-	} else if (freq <= 219500000) {	/* VHF Track: 2 */
+	else if (freq <= 219500000)	/* VHF Track: 2 */
 		ret = fc001x_writereg(dev, 0x1d, tmp | 0x08);
-	} else if (freq < 300000000) {		/* VHF Track: 1 */
+	else if (freq < 300000000) 	/* VHF Track: 1 */
 		ret = fc001x_writereg(dev, 0x1d, tmp | 0x04);
-	} else {				/* UHF and GPS */
+	else						/* UHF and GPS */
 		ret = fc001x_writereg(dev, 0x1d, tmp | 0x1c);
-	}
 
 error_out:
 	return ret;
@@ -286,7 +300,7 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 		/* set VHF track */
 		ret = fc0013_set_vhf_track(dev, freq);
 		if (ret)
-		goto exit;
+			goto exit;
 
 		if (freq < 300000000) {
 			/* enable VHF filter */
@@ -304,7 +318,7 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 			ret = fc001x_writereg(dev, 0x14, tmp & 0x1f);
 			if (ret)
 				goto exit;
-		} else if (freq <= 862000000) {
+		} else {
 			/* disable VHF filter */
 			ret = fc001x_readreg(dev, 0x07, &tmp);
 			if (ret)
@@ -320,27 +334,11 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 			ret = fc001x_writereg(dev, 0x14, (tmp & 0x1f) | 0x40);
 			if (ret)
 				goto exit;
-		} else {
-			/* disable VHF filter */
-			ret = fc001x_readreg(dev, 0x07, &tmp);
-			if (ret)
-				goto exit;
-			ret = fc001x_writereg(dev, 0x07, tmp & 0xef);
-			if (ret)
-			goto exit;
-
-			/* disable UHF & enable GPS */
-			ret = fc001x_readreg(dev, 0x14, &tmp);
-			if (ret)
-				goto exit;
-			ret = fc001x_writereg(dev, 0x14, (tmp & 0x1f) | 0x20);
-			if (ret)
-				goto exit;
 		}
 	}
 
 	/* select frequency divider and the frequency of VCO */
-	if (freq < 37084000) {		/* freq * 96 < 3560000000 */
+	if (freq < 37084000) {			/* freq * 96 < 3560000000 */
 		multi = 96;
 		reg[5] = 0x82;
 		reg[6] = 0x00;
@@ -450,7 +448,7 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 		xin += 32768;
 	reg[3] = xin >> 8;	/* xin with 9 bit resolution */
 	reg[4] = xin & 0xff;
-	//printf("f_vco=%I64u, xin=%u ", f_vco, xin);
+	//printf("f_vco=%llu, xin=%u, xdiv=%u, am=%u, pm=%u\n", f_vco, xin, xdiv, am, pm);
 
 	ret = fc001x_readreg(dev, 0x06, &tmp);
 	if (ret)
@@ -576,6 +574,7 @@ int fc0013_set_gain(void *dev, int gain)
 int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
 {
 	uint8_t data;
+	int ret;
 
 	if (bw < 6500000)
 	{
@@ -646,7 +645,7 @@ int fc0012_get_i2c_register(void *dev, unsigned char *data, int *len, int *stren
 
 int fc0013_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength)
  {
-	*len = 32;
+	*len = 30;
 	return fc001x_get_i2c_register(dev, data, len, strength, 0x13, 0x14);
 }
 
