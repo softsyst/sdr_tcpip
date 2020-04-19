@@ -10,6 +10,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifndef _WIN32
+#include <unistd.h>
+#else
+#include <windows.h>
+#endif
+
 #include "rtlsdr_i2c.h"
 #include "tuner_fc2580.h"
 
@@ -121,13 +127,14 @@ static uint8_t band = FC2580_NO_BAND;
  */
 static int fc2580_write(void *dev, unsigned char reg, unsigned char val)
 {
-	uint8_t data[2];
-
-	data[0] = reg;
-	data[1] = val;
-
-	if (rtlsdr_i2c_write_fn(dev, FC2580_I2C_ADDR, data, 2) < 0)
+	int rc = rtlsdr_i2c_write_fn(dev, FC2580_I2C_ADDR, reg, &val, 1);
+	if (rc != 1) {
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=1\n",
+			   __FUNCTION__, rc, reg);
+		if (rc < 0)
+			return rc;
 		return -1;
+	}
 
 	return 0;
 }
@@ -143,17 +150,17 @@ static int fc2580_wr_reg_ff(void *dev, uint8_t reg, uint8_t val)
 		return fc2580_write(dev, reg, val);
 }
 
-static int fc2580_read(void *dev, unsigned char reg, unsigned char *read_data)
+static int fc2580_read(void *dev, unsigned char reg, unsigned char *data)
 {
-	uint8_t data = reg;
-
-	if (rtlsdr_i2c_write_fn(dev, FC2580_I2C_ADDR, &data, 1) < 0)
+	int rc = rtlsdr_i2c_read_fn(dev, FC2580_I2C_ADDR, reg, data, 1);
+	if (rc != 1) {
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=1\n",
+			   __FUNCTION__, rc, reg);
+		if (rc < 0)
+			return rc;
 		return -1;
+	}
 
-	if (rtlsdr_i2c_read_fn(dev, FC2580_I2C_ADDR, &data, 1) < 0)
-		return -1;
-
-	*read_data = data;
 	return 0;
 }
 
@@ -244,14 +251,6 @@ int fc2580_get_i2c_register(void *dev, uint8_t *data, int *len, int *strength)
 	return 0;
 }
 
-static void fc2580_wait_msec(int a)
-{
-	/* USB latency is enough for now ;) */
-//	usleep(a * 1000);
-	return;
-}
-
-
 /*static int print_registers(void *dev)
 {
 	uint8_t data = 0;
@@ -282,6 +281,7 @@ int fc2580_init(void *dev)
 		if (ret)
 			goto err;
 	}
+	//print_registers(dev);
 	return 0;
 err:
 	fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, ret);
@@ -449,7 +449,6 @@ static int fc2580_set_filter(void *dev, unsigned char filter_bw)
 
 	for(i=0; i<5; i++)
 	{
-		fc2580_wait_msec(5);//wait 5ms
 		result &= fc2580_read(dev, 0x2F, &cal_mon);
 		if( (cal_mon & 0xC0) != 0xC0)
 		{

@@ -61,7 +61,7 @@ typedef int socklen_t;
 #define SOCKET_ERROR -1
 #endif
 
-#define MAX_I2C_REGISTERS  168
+#define MAX_I2C_REGISTERS  256
 #define TX_BUF_LEN (5+MAX_I2C_REGISTERS) //1 command, 2 strength, 2 len
 
 
@@ -119,7 +119,7 @@ void *ctrl_thread_fn(void *arg)
 #endif
 
 	while (1) {
-		printf("listening on Control port %d...\n", port);
+		//printf("listening on Control port %d...\n", port);
 		retval = listen(listensocket, 1);
 		if (retval == SOCKET_ERROR)
 			error = 1;

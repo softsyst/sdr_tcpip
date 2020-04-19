@@ -96,10 +96,23 @@ enum rtlsdr_async_status {
  * the DVB driver uses different ones
  */
 static const int fir_default[FIR_LEN] = {
+// default
 	-54, -36, -41, -40, -32, -14, 14, 53,	/* 8 bit signed */
 	101, 156, 215, 273, 327, 372, 404, 421	/* 12 bit signed */
+// raised cosine scaled 1.98
+//	20, 31, 44, 58, 74, 91, 109, 127,   /* 8 bit signed */
+//	145, 162, 178, 192, 204, 214, 220, 223  /* 12 bit signed */
+// parks optimazed for sample rate 2400000 scaled 1.2
+//	10, 12, 18, 26, 36, 47, 59, 72, /* 8 bit signed */
+//	85, 98, 111, 123, 133, 141, 147, 150    /* 12 bit signed */
+// rectangular optimazed for sample rate 960000 scaled 1.2
+//	50, 54, 57, 60, 63, 65, 68, 70, /* 8 bit signed */
+//	72, 74, 75, 77, 78, 78, 79, 79  /* 12 bit signed */
+// the FIR coefficients I used (where I say improved FIR)
+//	45, 25, 32, 39, 46, 53, 61, 69, /* 8 bit signed */
+//	76, 83, 89, 94, 99, 102, 105, 106  /* 12 bit signed */
 };
-
+static int cal_imr = 0;
 
 struct rtlsdr_dev {
 	libusb_context *ctx;
@@ -132,13 +145,10 @@ struct rtlsdr_dev {
 	struct e4k_state e4k_s;
 	struct r82xx_config r82xx_c;
 	struct r82xx_priv r82xx_p;
-	/* soft tuner agc */
-	//int changeGain;
 
 	/* -cs- Concurrent lock for the periodic reading of I2C registers */
 	pthread_mutex_t cs_mutex;
 	pthread_mutexattr_t cs_mutex_attr;
-	//int mutex;
 
 	/* status */
 	int dev_lost;
@@ -210,6 +220,7 @@ int r820t_init(void *dev) {
 	rtlsdr_get_xtal_freq(devt, NULL, &devt->r82xx_c.xtal);
 
 	devt->r82xx_c.use_predetect = 0;
+	devt->r82xx_c.cal_imr = cal_imr;
 	devt->r82xx_p.cfg = &devt->r82xx_c;
 
 	return r82xx_init(&devt->r82xx_p);
@@ -391,34 +402,90 @@ static rtlsdr_dongle_t known_devices[] = {
 #define CTRL_TIMEOUT	300
 #define BULK_TIMEOUT	0
 
-#define EEPROM_ADDR	0xa0
+#define EEPROM_ADDR			0xa0
+#define RTL2832_DEMOD_ADDR	0x20
+#define	DUMMY_PAGE			0x0a
+#define	DUMMY_ADDR			0x01
+
+
+/*
+ * memory map
+ *
+ * 0x0000 DEMOD : demodulator
+ * 0x2000 USB   : SIE, USB endpoint, debug, DMA
+ * 0x3000 SYS   : system
+ * 0xfc00 RC    : remote controller (not RTL2831U)
+ */
 
 enum usb_reg {
-	USB_SYSCTL			= 0x2000,
-	USB_CTRL			= 0x2010,
-	USB_STAT			= 0x2014,
-	USB_EPA_CFG			= 0x2144,
-	USB_EPA_CTL			= 0x2148,
-	USB_EPA_MAXPKT		= 0x2158,
-	USB_EPA_MAXPKT_2	= 0x215a,
-	USB_EPA_FIFO_CFG	= 0x2160,
+	/* SIE Control Registers */
+	USB_SYSCTL			= 0x2000, /* USB system control */
+	USB_IRQSTAT			= 0x2008, /* SIE interrupt status */
+	USB_IRQEN			= 0x200C, /* SIE interrupt enable */
+	USB_CTRL			= 0x2010, /* USB control */
+	USB_STAT			= 0x2014, /* USB status */
+	USB_DEVADDR			= 0x2018, /* USB device address */
+	USB_TEST			= 0x201C, /* USB test mode */
+	USB_FRAME_NUMBER	= 0x2020, /* frame number */
+	USB_FIFO_ADDR		= 0x2028, /* address of SIE FIFO RAM */
+	USB_FIFO_CMD		= 0x202A, /* SIE FIFO RAM access command */
+	USB_FIFO_DATA		= 0x2030, /* SIE FIFO RAM data */
+	/* Endpoint Registers */
+	EP0_SETUPA     		= 0x20F8, /* EP 0 setup packet lower byte */
+	EP0_SETUPB     		= 0x20FC, /* EP 0 setup packet higher byte */
+	USB_EP0_CFG    		= 0x2104, /* EP 0 configure */
+	USB_EP0_CTL    		= 0x2108, /* EP 0 control */
+	USB_EP0_STAT   		= 0x210C, /* EP 0 status */
+	USB_EP0_IRQSTAT		= 0x2110, /* EP 0 interrupt status */
+	USB_EP0_IRQEN  		= 0x2114, /* EP 0 interrupt enable */
+	USB_EP0_MAXPKT 		= 0x2118, /* EP 0 max packet size */
+	USB_EP0_BC     		= 0x2120, /* EP 0 FIFO byte counter */
+	USB_EPA_CFG			= 0x2144, /* EP A configure */
+	USB_EPA_CTL			= 0x2148, /* EP A control */
+	USB_EPA_STAT   	    = 0x214C, /* EP A status */
+	USB_EPA_IRQSTAT	    = 0x2150, /* EP A interrupt status */
+	USB_EPA_IRQEN  	    = 0x2154, /* EP A interrupt enable */
+	USB_EPA_MAXPKT		= 0x2158, /* EP A max packet size */
+	USB_EPA_MAXPKT_2	= 0x215a, /* EP A max packet size */
+	USB_EPA_FIFO_CFG	= 0x2160, /* EP A FIFO configure */
+	USB_EPA_FIFO_CFG_2 	= 0x2162, /* EP A FIFO configure */
+	/* Debug Registers */
+	USB_PHYTSTDIS      	= 0x2F04, /* PHY test disable */
+	USB_TOUT_VAL       	= 0x2F08, /* USB time-out time */
+	USB_VDRCTRL        	= 0x2F10, /* UTMI vendor signal control */
+	USB_VSTAIN         	= 0x2F14, /* UTMI vendor signal status in */
+	USB_VLOADM         	= 0x2F18, /* UTMI load vendor signal status in */
+	USB_VSTAOUT        	= 0x2F1C, /* UTMI vendor signal status out */
+	USB_UTMI_TST       	= 0x2F80, /* UTMI test */
+	USB_UTMI_STATUS    	= 0x2F84, /* UTMI status */
+	USB_TSTCTL         	= 0x2F88, /* test control */
+	USB_TSTCTL2        	= 0x2F8C, /* test control 2 */
+	USB_PID_FORCE      	= 0x2F90, /* force PID */
+	USB_PKTERR_CNT     	= 0x2F94, /* packet error counter */
+	USB_RXERR_CNT      	= 0x2F98, /* RX error counter */
+	USB_MEM_BIST       	= 0x2F9C, /* MEM BIST test */
+	USB_SLBBIST        	= 0x2FA0, /* self-loop-back BIST */
+	USB_CNTTEST        	= 0x2FA4, /* counter test */
+	USB_PHYTST         	= 0x2FC0, /* USB PHY test */
+	USB_DBGIDX         	= 0x2FF0, /* select individual block debug signal */
+	USB_DBGMUX        	= 0x2FF4  /* debug signal module mux */
 };
 
-enum sys_reg {
-	DEMOD_CTL		= 0x3000,
-	GPO				= 0x3001,
-	GPI				= 0x3002,
-	GPOE			= 0x3003,
-	GPD				= 0x3004,
-	SYSINTE			= 0x3005,
-	SYSINTS			= 0x3006,
-	GP_CFG0			= 0x3007,
-	GP_CFG1			= 0x3008,
+enum ir_reg {
+	/* demod control registers */
+	DEMOD_CTL		= 0x3000, /* control register for DVB-T demodulator */
+	GPO				= 0x3001, /* output value of GPIO */
+	GPI				= 0x3002, /* input value of GPIO */
+	GPOE			= 0x3003, /* output enable of GPIO */
+	GPD				= 0x3004, /* direction control for GPIO */
+	SYSINTE			= 0x3005, /* system interrupt enable */
+	SYSINTS			= 0x3006, /* system interrupt status */
+	GP_CFG0			= 0x3007, /* PAD configuration for GPIO0-GPIO3 */
+	GP_CFG1			= 0x3008, /* PAD configuration for GPIO4 */
 	SYSINTE_1		= 0x3009,
 	SYSINTS_1		= 0x300a,
 	DEMOD_CTL_1		= 0x300b,
 	IR_SUSPEND		= 0x300c,
-
 	/* IrDA registers */
 	SYS_IRRC_PSR	= 0x3020, /* IR protocol selection */
 	SYS_IRRC_PER	= 0x3024, /* IR protocol extension */
@@ -432,8 +499,10 @@ enum sys_reg {
 	SYS_I2CMCR		= 0x3044, /* I2C master control */
 	SYS_I2CMSTR		= 0x3048, /* I2C master SCL timing */
 	SYS_I2CMSR		= 0x304C, /* I2C master status */
-	SYS_I2CMFR		= 0x3050, /* I2C master FIFO */
+	SYS_I2CMFR		= 0x3050  /* I2C master FIFO */
+};
 
+enum sys_reg {
 	/* IR registers */
 	IR_RX_BUF		= 0xFC00,
 	IR_RX_IE		= 0xFD00,
@@ -447,74 +516,56 @@ enum sys_reg {
 	IR_GLITCH_LEN		= 0xFD08,
 	IR_RX_BUF_CTRL		= 0xFD09,
 	IR_RX_BUF_DATA		= 0xFD0A,
-	IR_RX_BC		= 0xFD0B,
-	IR_RX_CLK		= 0xFD0C,
+	IR_RX_BC			= 0xFD0B,
+	IR_RX_CLK			= 0xFD0C,
 	IR_RX_C_COUNT_L		= 0xFD0D,
 	IR_RX_C_COUNT_H		= 0xFD0E,
 	IR_SUSPEND_CTRL		= 0xFD10,
 	IR_ERR_TOL_CTRL		= 0xFD11,
-	IR_UNIT_LEN		= 0xFD12,
+	IR_UNIT_LEN			= 0xFD12,
 	IR_ERR_TOL_LEN		= 0xFD13,
 	IR_MAX_H_TOL_LEN	= 0xFD14,
 	IR_MAX_L_TOL_LEN	= 0xFD15,
 	IR_MASK_CTRL		= 0xFD16,
 	IR_MASK_DATA		= 0xFD17,
 	IR_RES_MASK_ADDR	= 0xFD18,
-	IR_RES_MASK_T_LEN	= 0xFD19,
+	IR_RES_MASK_T_LEN	= 0xFD19
 };
 
 enum blocks {
-	DEMODB			= 0,
-	USBB			= 1,
-	SYSB			= 2,
-	TUNB			= 3,
-	ROMB			= 4,
-	IRB				= 5,
-	IICB			= 6,
+	DEMODB	= 0x0000,
+	USBB  	= 0x0100,
+	SYSB  	= 0x0200,
+	IRB   	= 0x0201,
+	TUNB  	= 0x0300,
+	IICB 	= 0x0600
 };
 
-int rtlsdr_read_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t *array, uint8_t len)
+
+static inline int rtlsdr_read_array(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, uint8_t *array, uint8_t len)
 {
-	int r;
-	uint16_t index;
-
-	if (block == IRB)
-		index = (SYSB << 8) | 0x01;
-	else
-		index = (block << 8);
-
-	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, array, len, CTRL_TIMEOUT);
-	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
-	return r;
+	return libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, array, len, CTRL_TIMEOUT);
 }
 
-uint8_t rtlsdr_read_reg(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr)
+static inline int rtlsdr_write_array(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, uint8_t *array, uint8_t len)
 {
-	uint8_t data = 0;
+	return libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index | 0x10, array, len, CTRL_TIMEOUT);
+}
 
-	rtlsdr_read_array(dev, block, addr, &data, 1);
+static uint8_t rtlsdr_read_reg(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr)
+{
+	uint8_t data;
+
+	int r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, &data, 1, CTRL_TIMEOUT);
+	if (r != 1)
+		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+
 	return data;
 }
 
-int rtlsdr_write_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t *array, uint8_t len)
+static int rtlsdr_write_reg(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, uint16_t val, uint8_t len)
 {
 	int r;
-	uint16_t index;
-
-	if (block == IRB)
-		index = (SYSB << 8) | 0x11;
-	else
-		index = (block << 8) | 0x10;
-
-	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, array, len, CTRL_TIMEOUT);
-	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
-	return r;
-}
-
-int rtlsdr_write_reg(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint16_t val, uint8_t len)
-{
 	unsigned char data[2];
 
 	if (len == 1)
@@ -523,10 +574,15 @@ int rtlsdr_write_reg(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint16_t v
 		data[0] = val >> 8;
 		data[1] = val & 0xff;
 	}
-	return rtlsdr_write_array(dev, block, addr, data, len);
+	//return rtlsdr_write_array(dev, block, addr, data, len);
+	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index | 0x10, data, len, CTRL_TIMEOUT);
+	if (r < 0)
+		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
+
+	return r;
 }
 
-static int rtlsdr_write_reg_mask(rtlsdr_dev_t *d, int block, uint16_t reg, uint8_t val,
+static int rtlsdr_write_reg_mask(rtlsdr_dev_t *d, uint16_t block, uint16_t reg, uint8_t val,
 		uint8_t mask)
 {
 	uint8_t tmp;
@@ -542,79 +598,55 @@ static int rtlsdr_write_reg_mask(rtlsdr_dev_t *d, int block, uint16_t reg, uint8
 }
 
 
-uint8_t check_tuner(rtlsdr_dev_t *dev, uint8_t i2c_addr, uint8_t reg)
+static uint8_t check_tuner(rtlsdr_dev_t *dev, uint8_t i2c_addr, uint8_t reg)
 {
-	uint16_t addr = i2c_addr;
 	uint8_t data = 0;
 
-	//rtlsdr_write_array(dev, IICB, addr, &reg, 1);
-	uint16_t index = (IICB << 8) | 0x10;
-	libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, &reg, 1, CTRL_TIMEOUT);
-
-	//rtlsdr_read_array(dev, IICB, addr, &data, 1);
-	index = IICB << 8;
-	libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, &data, 1, CTRL_TIMEOUT);
-
+	libusb_control_transfer(dev->devh, CTRL_IN, 0, reg << 8 | i2c_addr, TUNB, &data, 1, CTRL_TIMEOUT);
 	return data;
 }
 
-int rtlsdr_i2c_write_fn(void *dev, uint8_t addr, uint8_t *buf, int len)
+int rtlsdr_i2c_write_fn(void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int len)
 {
 	if (!dev)
 		return -1;
-	return rtlsdr_write_array((rtlsdr_dev_t *)dev, IICB, (uint16_t)addr, buf, len);
+	return rtlsdr_write_array((rtlsdr_dev_t *)dev, TUNB, reg << 8 | addr, buf, len);
 }
 
-int rtlsdr_i2c_read_fn(void *dev, uint8_t addr, uint8_t *buf, int len)
+int rtlsdr_i2c_read_fn(void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int len)
 {
 	if (!dev)
 		return -1;
-	return rtlsdr_read_array((rtlsdr_dev_t *)dev, IICB, (uint16_t)addr, buf, len);
+	return rtlsdr_read_array((rtlsdr_dev_t *)dev, TUNB, reg << 8 | addr, buf, len);
 }
 
-#define RTL2832_DEMOD_ADDR	0x20
-#define	DUMMY_PAGE			0x0a
-#define	DUMMY_ADDR			0x01
-
-uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint8_t len)
+static uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, uint8_t len)
 {
-	int r;
 	unsigned char data[2];
 
-	uint16_t index = page;
-	uint16_t reg;
-	addr = (addr << 8) | RTL2832_DEMOD_ADDR;
-
-	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
-
-	if (r < 0)
+	int r = libusb_control_transfer(dev->devh, CTRL_IN, 0, (addr << 8) | RTL2832_DEMOD_ADDR,
+									index, data, len, CTRL_TIMEOUT);
+	if (r != len)
 		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
 
-	reg = (data[1] << 8) | data[0];
-
-	return reg;
+	return (data[1] << 8) | data[0];
 }
 
-int rtlsdr_demod_read_regs(rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, unsigned char *data, uint8_t len)
+static int rtlsdr_demod_read_regs(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, unsigned char *data, uint8_t len)
 {
-	int r;
-
-	uint16_t index = page;
-	addr = (addr << 8) | RTL2832_DEMOD_ADDR;
-
-	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
-
-	if (r < 0)
+	int r = libusb_control_transfer(dev->devh, CTRL_IN, 0, (addr << 8) | RTL2832_DEMOD_ADDR,
+								index, data, len, CTRL_TIMEOUT);
+	if (r != len)
 		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
 
 	return r;
 }
 
-int rtlsdr_demod_write_reg(rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint16_t val, uint8_t len)
+static int rtlsdr_demod_write_reg(rtlsdr_dev_t *dev, uint8_t index, uint16_t addr, uint16_t val, uint8_t len)
 {
 	int r;
 	unsigned char data[2];
-	uint16_t index = 0x10 | page;
+
 	addr = (addr << 8) | RTL2832_DEMOD_ADDR;
 
 	if (len == 1)
@@ -624,9 +656,8 @@ int rtlsdr_demod_write_reg(rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint1
 		data[1] = val & 0xff;
 	}
 
-	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
-
-	if (r < 0)
+	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index | 0x10, data, len, CTRL_TIMEOUT);
+	if (r != len)
 		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
 
 	rtlsdr_demod_read_reg(dev, DUMMY_PAGE, DUMMY_ADDR, 1);
@@ -644,7 +675,7 @@ void rtlsdr_set_gpio_bit(rtlsdr_dev_t *dev, uint8_t gpio, int val)
 	rtlsdr_write_reg(dev, SYSB, GPO, r, 1);
 }
 
-void rtlsdr_set_gpio_output(rtlsdr_dev_t *dev, uint8_t gpio)
+static void rtlsdr_set_gpio_output(rtlsdr_dev_t *dev, uint8_t gpio)
 {
 	uint8_t r;
 	gpio = 1 << gpio;
@@ -655,24 +686,18 @@ void rtlsdr_set_gpio_output(rtlsdr_dev_t *dev, uint8_t gpio)
 	rtlsdr_write_reg(dev, SYSB, GPOE, r | gpio, 1);
 }
 
-void rtlsdr_set_i2c_repeater(rtlsdr_dev_t *dev, int on)
+static void rtlsdr_set_i2c_repeater(rtlsdr_dev_t *dev, int on)
 {
 	if (on)
-	{
 		pthread_mutex_lock(&dev->cs_mutex);
-		//dev->mutex = 1;
-	}
 
 	rtlsdr_demod_write_reg(dev, 1, 0x01, on ? 0x18 : 0x10, 1);
 
 	if (!on)
-	{
 		pthread_mutex_unlock(&dev->cs_mutex);
-		//dev->mutex = 0;
-	}
 }
 
-int rtlsdr_set_fir(rtlsdr_dev_t *dev)
+static int rtlsdr_set_fir(rtlsdr_dev_t *dev)
 {
 	uint8_t fir[20];
 
@@ -705,7 +730,7 @@ int rtlsdr_set_fir(rtlsdr_dev_t *dev)
 	return 0;
 }
 
-void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
+static void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 {
 	unsigned int i;
 
@@ -713,6 +738,9 @@ void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 	rtlsdr_write_reg(dev, USBB, USB_SYSCTL, 0x09, 1);
 	rtlsdr_write_reg(dev, USBB, USB_EPA_MAXPKT, 0x0002, 2);
 	rtlsdr_write_reg(dev, USBB, USB_EPA_CTL, 0x1002, 2);
+
+	/* disable IR interrupts in order to avoid SDR sample loss */
+	rtlsdr_write_reg(dev, IRB, IR_RX_IE, 0x00, 1);
 
 	/* poweron demod */
 	rtlsdr_write_reg(dev, SYSB, DEMOD_CTL_1, 0x22, 1);
@@ -765,7 +793,7 @@ void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 	rtlsdr_demod_write_reg(dev, 1, 0xc7, 0x2c, 1);
 }
 
-int rtlsdr_deinit_baseband(rtlsdr_dev_t *dev)
+static int rtlsdr_deinit_baseband(rtlsdr_dev_t *dev)
 {
 	int r = 0;
 
@@ -832,7 +860,7 @@ static inline int rtlsdr_set_spectrum_inversion(rtlsdr_dev_t *dev, int sideband)
 	return rtlsdr_demod_write_reg(dev, 1, 0x15, sideband ? 0x00 : 0x01, 1);
 }
 
-int rtlsdr_set_sample_freq_correction(rtlsdr_dev_t *dev, int ppm)
+static int rtlsdr_set_sample_freq_correction(rtlsdr_dev_t *dev, int ppm)
 {
 	int16_t offs = ppm * (-1) * TWO_POW(24) / 1000000;
 
@@ -985,7 +1013,6 @@ int rtlsdr_read_eeprom(rtlsdr_dev_t *dev, uint8_t *data, uint8_t offset, uint16_
 
 	for (i = 0; i < len; i++) {
 		r = rtlsdr_read_array(dev, IICB, EEPROM_ADDR, data + i, 1);
-
 		if (r < 0)
 			return -3;
 	}
@@ -1239,7 +1266,7 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 		return -1;
 
 	/* check if the rate is supported by the resampler */
-	if ((samp_rate <= 225000) || (samp_rate > 3200000) ||
+	if ((samp_rate <= 225000) || (samp_rate > 4096000) ||
 		 ((samp_rate > 300000) && (samp_rate <= 900000))) {
 		fprintf(stderr, "Invalid sample rate: %u Hz\n", samp_rate);
 		return -EINVAL;
@@ -1255,13 +1282,6 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 		fprintf(stderr, "Exact sample rate is: %f Hz\n", real_rate);
 
 	dev->rate = (uint32_t)real_rate;
-
-	/*if (dev->tuner && dev->tuner->set_bw) {
-		uint32_t applied_bw = 0;
-		rtlsdr_set_i2c_repeater(dev, 1);
-		dev->tuner->set_bw(dev, dev->bw > 0 ? dev->bw : dev->rate, &applied_bw, 1);
-		rtlsdr_set_i2c_repeater(dev, 0);
-	}*/
 
 	tmp = (rsamp_ratio >> 16);
 	r |= rtlsdr_demod_write_reg(dev, 1, 0x9f, tmp, 2);
@@ -1830,6 +1850,7 @@ found:
 	*out_dev = dev;
 	//print_demod_register(dev, 0);
 	//print_demod_register(dev, 1);
+
 	return 0;
 err:
 	if (dev) {
@@ -1907,7 +1928,6 @@ static void LIBUSB_CALL _libusb_callback(struct libusb_transfer *xfer)
 	rtlsdr_dev_t *dev = (rtlsdr_dev_t *)xfer->user_data;
 
 	if (LIBUSB_TRANSFER_COMPLETED == xfer->status) {
-		//softagc(dev, xfer->buffer, xfer->actual_length);
 		if (dev->cb)
 			dev->cb(xfer->buffer, xfer->actual_length, dev->cb_ctx);
 
@@ -2205,27 +2225,11 @@ struct rtl28xxu_reg_val {
 };
 
 struct rtl28xxu_reg_val_mask {
-	int block;
+	uint16_t block;
 	uint16_t reg;
 	uint8_t val;
 	uint8_t mask;
 };
-
-
-static int rtlsdr_read_regs(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t *data, uint8_t len)
-{
-	int r;
-	uint16_t index = (block << 8);
-	if (block == IRB) index = (SYSB << 8) | 0x01;
-
-	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
-
-	if (r < 0)
-		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
-
-	return r;
-}
-
 
 int rtlsdr_ir_query(rtlsdr_dev_t *d, uint8_t *buf, size_t buf_len)
 {
@@ -2301,7 +2305,7 @@ int rtlsdr_ir_query(rtlsdr_dev_t *d, uint8_t *buf, size_t buf_len)
 	}
 
 	/* read raw code from hw */
-	ret = rtlsdr_read_regs(d, IRB, IR_RX_BUF, buf, len);
+	ret = rtlsdr_read_array(d, IRB, IR_RX_BUF, buf, len);
 	if (ret < 0)
 		goto err;
 
@@ -2323,18 +2327,21 @@ err:
 	return ret;
 }
 
-
-int rtlsdr_set_bias_tee(rtlsdr_dev_t *dev, int on)
+int rtlsdr_set_bias_tee_gpio(rtlsdr_dev_t *dev, int gpio, int on)
 {
 	if (!dev)
 		return -1;
 
-	rtlsdr_set_gpio_output(dev, 0);
-	rtlsdr_set_gpio_bit(dev, 0, on);
+	rtlsdr_set_gpio_output(dev, gpio);
+	rtlsdr_set_gpio_bit(dev, gpio, on);
 
 	return 0;
 }
 
+int rtlsdr_set_bias_tee(rtlsdr_dev_t *dev, int on)
+{
+	return rtlsdr_set_bias_tee_gpio(dev, 0, on);
+}
 
 int rtlsdr_set_opt_string(rtlsdr_dev_t *dev, const char *opts, int verbose)
 {
@@ -2353,6 +2360,7 @@ int rtlsdr_set_opt_string(rtlsdr_dev_t *dev, const char *opts, int verbose)
 	{
 		int ret = 0;
 		if (!strcmp(optPart, "verbose")) {
+			fprintf(stderr, "\nrtlsdr_set_opt_string(): parsed option verbose\n");
 			dev->verbose = 1;
 		}
 		else if (!strncmp(optPart, "f=", 2)) {
@@ -2411,5 +2419,10 @@ int rtlsdr_set_opt_string(rtlsdr_dev_t *dev, const char *opts, int verbose)
 
 	free(optStr);
 	return retAll;
+}
+
+void rtlsdr_cal_imr(const int val)
+{
+	cal_imr = val;
 }
 

@@ -33,6 +33,7 @@
 
 #include "rtl-sdr.h"
 #include "convenience/convenience.h"
+#include "convenience/wavewrite.h"
 
 #define DEFAULT_SAMPLE_RATE		2048000
 #define DEFAULT_BANDWIDTH		0	/* automatic bandwidth */

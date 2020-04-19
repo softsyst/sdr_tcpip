@@ -1,3 +1,4 @@
+
 /*
  * Fitipower FC0012/FC0013 tuner driver
  *
@@ -29,33 +30,16 @@
 #include "rtl-sdr.h"
 #include "tuner_fc001x.h"
 
-static int fc001x_write(void *dev, uint8_t reg, const uint8_t *val, unsigned int len)
+static int fc001x_write(void *dev, uint8_t reg, uint8_t *buf, int len)
 {
-	uint8_t buf[MAX_I2C_MSG_LEN];
-	int rc, size, pos = 0;
-
-	do {
-		if (len > MAX_I2C_MSG_LEN - 1)
-			size = MAX_I2C_MSG_LEN - 1;
-		else
-			size = len;
-
-		/* Fill I2C buffer */
-		buf[0] = reg;
-		memcpy(&buf[1], &val[pos], size);
-
-		rc = rtlsdr_i2c_write_fn(dev, FC001X_I2C_ADDR, buf, size+1);
-		if (rc != size + 1) {
-			fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
-				   __FUNCTION__, rc, reg, size);
-			if (rc < 0)
-				return rc;
-			return -1;
-		}
-		reg += size;
-		len -= size;
-		pos += size;
-	} while (len > 0);
+	int rc = rtlsdr_i2c_write_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
+	if (rc != len) {
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
+			   __FUNCTION__, rc, reg, len);
+		if (rc < 0)
+			return rc;
+		return -1;
+	}
 
 	return 0;
 }
@@ -65,31 +49,16 @@ static inline int fc001x_writereg(void *dev, uint8_t reg, uint8_t val)
 	return fc001x_write(dev, reg, &val, 1);
 }
 
-static int fc001x_read(void *dev, uint8_t reg, uint8_t *val, unsigned int len)
+static int fc001x_read(void *dev, uint8_t reg, uint8_t *buf, int len)
 {
-	int rc, size, pos = 0;
-
-	do {
-		if (len > MAX_I2C_MSG_LEN)
-			size = MAX_I2C_MSG_LEN;
-		else
-			size = len;
-
-		rc = rtlsdr_i2c_write_fn(dev, FC001X_I2C_ADDR, &reg, 1);
-		if (rc < 1)
+	int rc = rtlsdr_i2c_read_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
+	if (rc != len) {
+		fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
+			   __FUNCTION__, rc, reg, len);
+		if (rc < 0)
 			return rc;
-		rc = rtlsdr_i2c_read_fn(dev, FC001X_I2C_ADDR, val+pos, size);
-		if (rc != size) {
-			fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
-				   __FUNCTION__, rc, reg, size);
-			if (rc < 0)
-				return rc;
-			return -1;
-		}
-		reg += size;
-		len -= size;
-		pos += size;
-	} while (len > 0);
+		return -1;
+	}
 
 	return 0;
 }
@@ -197,7 +166,7 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
 
 int fc0012_init(void *dev)
 {
-	const uint8_t reg[] = {
+	uint8_t reg[] = {
 		0x05,	/* reg. 0x01 */
 		0x10,	/* reg. 0x02 */
 		0x00,	/* reg. 0x03 */
@@ -228,7 +197,7 @@ int fc0012_init(void *dev)
 
 int fc0013_init(void *dev)
 {
-	const uint8_t reg[] = {
+	uint8_t reg[] = {
 		0x09,	/* reg. 0x01 */
 		0x16,	/* reg. 0x02 */
 		0x00,	/* reg. 0x03 */
@@ -574,7 +543,6 @@ int fc0013_set_gain(void *dev, int gain)
 int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
 {
 	uint8_t data;
-	int ret;
 
 	if (bw < 6500000)
 	{

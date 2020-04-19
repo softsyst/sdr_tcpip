@@ -47,7 +47,7 @@
 #include "convenience/convenience.h"
 
 #ifdef _WIN32
-//#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 typedef int socklen_t;
 

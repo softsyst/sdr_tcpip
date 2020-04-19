@@ -82,6 +82,7 @@
 
 #include "rtl-sdr.h"
 #include "convenience/convenience.h"
+#include "convenience/wavewrite.h"
 
 #define DEFAULT_SAMPLE_RATE		24000
 #define DEFAULT_BUF_LENGTH		(1 * 16384)

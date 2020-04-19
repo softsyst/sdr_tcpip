@@ -53,34 +53,16 @@ static const uint8_t width2mask[] = {
 /***********************************************************************
  * Register Access */
 
-static int e4k_write_array(struct e4k_state *e4k, uint8_t reg, const uint8_t *val,
-			   		unsigned int len)
+static int e4k_write_array(struct e4k_state *e4k, uint8_t reg, uint8_t *buf, int len)
 {
-	uint8_t buf[MAX_I2C_MSG_LEN];
-	int rc, size, pos = 0;
-
-	do {
-		if (len > MAX_I2C_MSG_LEN - 1)
-			size = MAX_I2C_MSG_LEN - 1;
-		else
-			size = len;
-
-		/* Fill I2C buffer */
-		buf[0] = reg;
-		memcpy(&buf[1], &val[pos], size);
-
-		rc = rtlsdr_i2c_write_fn(e4k->rtl_dev, e4k->i2c_addr, buf, size + 1);
-		if (rc != size + 1) {
-			fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
-				   __FUNCTION__, rc, reg, size);
-			if (rc < 0)
-				return rc;
-			return -1;
-		}
-		reg += size;
-		len -= size;
-		pos += size;
-	} while (len > 0);
+	int rc = rtlsdr_i2c_write_fn(e4k->rtl_dev, e4k->i2c_addr, reg, buf, len);
+	if (rc != len) {
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
+			   __FUNCTION__, rc, reg, len);
+		if (rc < 0)
+			return rc;
+		return -1;
+	}
 
 	return 0;
 }
@@ -96,31 +78,16 @@ static int e4k_reg_write(struct e4k_state *e4k, uint8_t reg, uint8_t val)
 	return e4k_write_array(e4k, reg, &val, 1);
 }
 
-static int e4k_read_array(struct e4k_state *e4k, uint8_t reg, uint8_t *val, unsigned int len)
+static int e4k_read_array(struct e4k_state *e4k, uint8_t reg, uint8_t *buf, int len)
 {
-	int rc, size, pos = 0;
-
-	do {
-		if (len > MAX_I2C_MSG_LEN)
-			size = MAX_I2C_MSG_LEN;
-		else
-			size = len;
-
-		rc = rtlsdr_i2c_write_fn(e4k->rtl_dev, e4k->i2c_addr, &reg, 1);
-		if (rc < 1)
+	int rc = rtlsdr_i2c_read_fn(e4k->rtl_dev, e4k->i2c_addr, reg, buf, len);
+	if (rc != len) {
+		fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
+			   __FUNCTION__, rc, reg, len);
+		if (rc < 0)
 			return rc;
-		rc = rtlsdr_i2c_read_fn(e4k->rtl_dev, e4k->i2c_addr, val+pos, size);
-		if (rc != size) {
-			fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
-				   __FUNCTION__, rc, reg, size);
-			if (rc < 0)
-				return rc;
-			return -1;
-		}
-		reg += size;
-		len -= size;
-		pos += size;
-	} while (len > 0);
+		return -1;
+	}
 
 	return 0;
 }
@@ -132,12 +99,9 @@ static int e4k_read_array(struct e4k_state *e4k, uint8_t reg, uint8_t *val, unsi
  */
 static int e4k_reg_read(struct e4k_state *e4k, uint8_t reg)
 {
-	uint8_t data = reg;
+	uint8_t data;
 
-	if (rtlsdr_i2c_write_fn(e4k->rtl_dev, e4k->i2c_addr, &data, 1) < 1)
-		return -1;
-
-	if (rtlsdr_i2c_read_fn(e4k->rtl_dev, e4k->i2c_addr, &data, 1) < 1)
+	if (rtlsdr_i2c_read_fn(e4k->rtl_dev, e4k->i2c_addr, reg, &data, 1) != 1)
 		return -1;
 
 	return data;
@@ -305,18 +269,6 @@ static const struct pll_settings pll_vars[] = {
 	{KHZ(1200000),	(0 << 3) | 1,	4}
 };
 
-static int is_fvco_valid(uint32_t fvco_z)
-{
-	/* check if the resulting fosc is valid */
-	if (fvco_z/1000 < E4K_FVCO_MIN_KHZ ||
-	    fvco_z/1000 > E4K_FVCO_MAX_KHZ) {
-		fprintf(stderr, "[E4K] Fvco %u invalid\n", fvco_z);
-		return 0;
-	}
-
-	return 1;
-}
-
 static int is_fosc_valid(uint32_t fosc)
 {
 	if (fosc < MHZ(16) || fosc > MHZ(30)) {
@@ -325,16 +277,6 @@ static int is_fosc_valid(uint32_t fosc)
 	}
 
 	return 1;
-}
-
-/*! \brief Determine if 3-phase mixing shall be used or not */
-static int use_3ph_mixing(uint32_t flo)
-{
-	/* this is a magic number somewhre between VHF and UHF */
-	if (flo < MHZ(350))
-		return 1;
-
-	return 0;
 }
 
 /* \brief compute Fvco based on Fosc, Z and X
@@ -350,14 +292,7 @@ static uint64_t compute_fvco(uint32_t f_osc, uint8_t z, uint16_t x)
 	 * integer, as we cannot hold e.g. 26 MHz * 65536 either.
 	 */
 	fvco_z = (uint64_t)f_osc * z;
-
-#if 0
-	if (!is_fvco_valid(fvco_z))
-		return 0;
-#endif
-
 	fvco_x = ((uint64_t)f_osc * x) / E4K_PLL_Y;
-
 	fvco = fvco_z + fvco_x;
 
 	return fvco;
@@ -850,5 +785,7 @@ int e4k_get_i2c_register(struct e4k_state *e4k, uint8_t *data, int *len, int *st
 	if (rc < 0)
 		return rc;
 	*strength = e4k_get_signal_strength(data);
+
 	return 0;
 }
+

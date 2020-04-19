@@ -1,3 +1,4 @@
+
 /*
  * rtl-sdr, turns your Realtek RTL2832 based DVB dongle into a SDR receiver
  * Copyright (C) 2012 by Steve Markgraf <steve@steve-m.de>
@@ -22,6 +23,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -87,9 +89,7 @@ typedef struct { /* structure size must be multiple of 2 bytes */
 static rtlsdr_dev_t *dev = NULL;
 
 static int verbosity = 0;
-static uint32_t bandwidth = 0;
 
-static int enable_biastee = 0;
 static int global_numq = 0;
 static struct llist *ll_buffers = 0;
 static int llbuf_num = 500;
@@ -101,16 +101,18 @@ void usage(void)
 	printf("\n"
 		"Usage:\t[-a listen address]\n"
 		"\t[-b number of buffers (default: 15, set by library)]\n"
+		"\t[-c don't calibrate image rejection for R820T/R828D]\n"
 		"\t[-d device index or serial (default: 0)]\n"
 		"\t[-f frequency to tune to [Hz]]\n"
 		"\t[-g gain in dB (default: 0 for auto)]\n"
-		"\t[-l length of single buffer in units of 512 samples (default: 128)]\n"
+		"\t[-l length of single buffer in units of 512 samples (default: 64)]\n"
 		"\t[-n max number of linked list buffers to keep (default: 500)]\n"
 		"\t[-p listen port (default: 1234)]\n"
+		"\t[-r response port (default: listen port + 1)]\n"
 		"\t[-s samplerate in Hz (default: 2048000 Hz)]\n"
-		"\t[-u upper sideband for R820T (default: lower sideband)]\n"
+		"\t[-u upper sideband for R820T/R828D (default: lower sideband)]\n"
 		"\t[-v increase verbosity (default: 0)]\n"
-		"\t[-w rtlsdr tuner bandwidth [Hz] (for R820T and E4000 tuners)]\n"
+		"\t[-w rtlsdr tuner bandwidth [Hz]]\n"
 		"\t[-D direct_sampling_mode (default: 0, 1 = I, 2 = Q, 3 = I below threshold, 4 = Q below threshold)]\n"
 		"\t[-D direct_sampling_threshold_frequency (default: 0 use tuner specific frequency threshold for 3 and 4)]\n"
 		"\t[-P ppm_error (default: 0)]\n"
@@ -140,7 +142,7 @@ static void sighandler(int signum)
 }
 #endif
 
-void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
+static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 {
 	if(!do_exit) {
 		struct llist *rpt = (struct llist*)malloc(sizeof(struct llist));
@@ -150,7 +152,7 @@ void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 		rpt->next = NULL;
 
 		pthread_mutex_lock(&ll_mutex);
-
+		//printf("ll_buffers=%x\n",ll_buffers);
 		if (ll_buffers == NULL) {
 			ll_buffers = rpt;
 		} else {
@@ -161,7 +163,6 @@ void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 				cur = cur->next;
 				num_queued++;
 			}
-
 			if(llbuf_num && llbuf_num == num_queued-2){
 				struct llist *curelem;
 
@@ -368,9 +369,8 @@ static void *command_worker(void *arg)
 			rtlsdr_set_bias_tee(dev, param);
 			break;
 		case SET_TUNER_BANDWIDTH://0x40
-			bandwidth = param;
-			printf("set tuner bandwidth to %i Hz\n", bandwidth);
-			verbose_set_bandwidth(dev, bandwidth);
+			printf("set tuner bandwidth to %u Hz\n", param);
+			verbose_set_bandwidth(dev, param);
 			break;
 		case SET_I2C_TUNER_REGISTER://0x43
 			printf("set i2c register x%03X to x%03X with mask x%02X\n", (param >> 20) & 0xfff, param & 0xfff, (param >> 12) & 0xff );
@@ -387,6 +387,8 @@ static void *command_worker(void *arg)
 				param = 1;
 			ctrldata.report_i2c = param;  /* (de)activate reporting */
 			printf("read registers %d\n", param);
+			printf("activating response channel on port %d with %s I2C reporting\n",
+					ctrldata.port, (param ? "active" : "inactive") );
 			break;
 		default:
 			break;
@@ -404,8 +406,10 @@ int main(int argc, char **argv)
 	int port = 1234;
 	pthread_t thread_ctrl; //-cs- for periodically reading the register values
 	int port_resp = 1;
-	int report_i2c = 0;
+	//int report_i2c = 0;
+	int report_i2c = 1;
 	int do_exit_thrd_ctrl = 0;
+	int cal_imr = 1;
 
 	uint32_t frequency = 100000000, samp_rate = 2048000;
 	enum rtlsdr_ds_mode ds_mode = RTLSDR_DS_IQ;
@@ -424,8 +428,7 @@ int main(int argc, char **argv)
 	 *   512 samples @ 48 kHz ~= 10.6 ms
 	 *   512 samples @  8 kHz  = 64 ms
 	 */
-	//-cs- uint32_t buf_len = 32 * 512;
-	uint32_t buf_len = 2 *32 * 512;
+	uint32_t buf_len = 64 * 512;
 	int dev_index = 0;
 	int dev_given = 0;
 	int gain = 0;
@@ -441,6 +444,8 @@ int main(int argc, char **argv)
 	u_long blockmode = 1;
 	dongle_info_t dongle_info;
 	int gains[100];
+	uint32_t bandwidth = 0;
+	int enable_biastee = 0;
 
 #ifdef _WIN32
 	WSADATA wsd;
@@ -452,13 +457,16 @@ int main(int argc, char **argv)
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
 		   "Version 0.89 for QIRX, %s\n\n", __DATE__);
 
-	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:p:us:vr:w:D:TP:")) != -1) {
+	while ((opt = getopt(argc, argv, "a:b:cd:f:g:l:n:O:p:us:vr:w:D:TP:")) != -1) {
 		switch (opt) {
 		case 'a':
 			addr = optarg;
 			break;
 		case 'b':
 			buf_num = atoi(optarg);
+			break;
+		case 'c':
+			cal_imr = 0;
 			break;
 		case 'd':
 			dev_index = verbose_device_search(optarg);
@@ -481,7 +489,6 @@ int main(int argc, char **argv)
 			break;
 		case 'r':
 			port_resp = atoi(optarg);
-			report_i2c = 0;
 			break;
 		case 's':
 			samp_rate = (uint32_t)atofs(optarg);
@@ -528,6 +535,7 @@ int main(int argc, char **argv)
 	    exit(1);
 	}
 
+	rtlsdr_cal_imr(cal_imr);
 	rtlsdr_open(&dev, (uint32_t)dev_index);
 	if (NULL == dev) {
 	fprintf(stderr, "Failed to open rtlsdr device #%d.\n", dev_index);
@@ -564,9 +572,10 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Tuned to %i Hz.\n", frequency);
 
 	if (gain == 0) {
-		 // Enable automatic gain
+		// Enable automatic gain
 		verbose_auto_gain(dev);
 		rtlsdr_set_agc_mode(dev, 1);
+		printf("set agc mode 1\n");
 
 	} else {
 		// Enable manual gain
@@ -602,9 +611,11 @@ int main(int argc, char **argv)
 	ctrldata.wait = 500000; /* = 0.5 sec */
 	ctrldata.report_i2c = report_i2c;
 	ctrldata.pDoExit = &do_exit_thrd_ctrl;
-	if ( port_resp ) {
-		fprintf(stderr, "activating Response channel on port %d with %s I2C reporting\n"
-			, port_resp, (report_i2c ? "active" : "inactive") );
+	if( port_resp )
+	{
+		if ( port_resp != (port+1))
+			fprintf(stderr, "activating response channel on port %d with %s I2C reporting\n",
+					port_resp, (report_i2c ? "active" : "inactive") );
 		pthread_create(&thread_ctrl, NULL, &ctrl_thread_fn, &ctrldata);
 	}
 
@@ -660,7 +671,6 @@ int main(int argc, char **argv)
 		r = rtlsdr_get_tuner_type(dev);
 		if (r >= 0)
 			dongle_info.tuner_type = htonl(r);
-			//dongle_info.tuner_type = htonl(RTLSDR_TUNER_FC0012);
 		r = rtlsdr_get_tuner_gains(dev, gains);
 		if (r >= 0)
 			dongle_info.tuner_gain_count = htonl(r);
