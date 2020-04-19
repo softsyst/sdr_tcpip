@@ -37,8 +37,6 @@
 #define REG_SHADOW_START	5
 #define NUM_REGS			27
 
-#define VER_NUM				49
-
 
 enum r82xx_chip {
 	CHIP_R820T,
@@ -55,27 +53,18 @@ enum r82xx_tuner_type {
 	TUNER_DIGITAL_TV
 };
 
-enum r82xx_xtal_cap_value {
-	XTAL_LOW_CAP_30P = 0,
-	XTAL_LOW_CAP_20P,
-	XTAL_LOW_CAP_10P,
-	XTAL_LOW_CAP_0P,
-	XTAL_HIGH_CAP_0P
-};
-
 struct r82xx_config {
 	uint8_t i2c_addr;
 	uint32_t xtal;
 	enum r82xx_chip rafael_chip;
 	int use_diplexer;
 	int use_predetect;
+	int	cal_imr;
 };
 
 struct r82xx_priv {
 	const struct r82xx_config	*cfg;
 	uint8_t						regs[NUM_REGS];
-	uint8_t						buf[NUM_REGS + 1];
-	enum r82xx_xtal_cap_value	xtal_cap_sel;
 	uint32_t					int_freq;
 	uint8_t						input;
 	uint8_t						old_gain;
@@ -92,9 +81,6 @@ struct r82xx_freq_range {
 	uint8_t		open_d;
 	uint8_t		rf_mux_ploy;
 	uint8_t		tf_c;
-	uint8_t		xtal_cap20p;
-	uint8_t		xtal_cap10p;
-	uint8_t		xtal_cap0p;
 };
 
 int r82xx_standby(struct r82xx_priv *priv);
