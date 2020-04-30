@@ -691,7 +691,7 @@ extern "C"
 		struct sigaction sigact, sigign;
 #endif
 		printf("airspy_tcp, an I/Q spectrum server Airspy receivers\n"
-			"Version 0.12 for QIRX, 08.11.2019\n\n");
+			"Version 0.12a for QIRX, 30.04.2020\n\n");
 
 		//for (int k = 0; k < argc; k++)
 		//{
