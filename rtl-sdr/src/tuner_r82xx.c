@@ -68,7 +68,7 @@ R4		[5:4]					vco_fine_tune
 ------------------------------------------------------------------------------------
 R5		[7] 	LOOP_THROUGH	Loop through ON/OFF
 0x05							0: on, 1: off
-		[6.5]	AIR_CABLE1_IN	0 (only R828D)
+		[6:5]	AIR_CABLE1_IN	0 (only R828D)
 		[5] 	PWD_LNA1		LNA 1 power control
 								0:on, 1:off
 		[4] 	LNA_GAIN_MODE	LNA gain mode switch
@@ -198,7 +198,7 @@ R17		[7:6] 	PW_LDO_A		PLL analog low drop out regulator switch
 		[2:0]					011
 ------------------------------------------------------------------------------------
 R18		[7:5] 					set VCO current
-0x12	[4]						0
+0x12	[4]						0: enable dithering, 1: disable dithering
 		[3]		PW_SDM			0: Enable frac pll, 1: Disable frac pll
 		[2:0]					000
 ------------------------------------------------------------------------------------
@@ -319,7 +319,7 @@ static uint8_t r82xx_init_array[] = {
 	0x6b,	//Reg 0x0b
 	0xf0, 	//Reg 0x0c
 	0x53, 	//Reg 0x0d
-	0x75, 	//Reg 0x0e
+	0x53, 	//Reg 0x0e
 	0x68,	//Reg 0x0f
 	0x64, 	//Reg 0x10
 	0xbb, 	//Reg 0x11
@@ -522,7 +522,7 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *buf, int len)
 
 /*static void print_registers(struct r82xx_priv *priv)
 {
-	uint8_t data[16];
+	uint8_t data[5];
 	int rc;
 	unsigned int i;
 
@@ -531,7 +531,6 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *buf, int len)
 		return;
 	for(i=0; i<sizeof(data); i++)
 		printf("%02x ", data[i]);
-	printf("\n");
 	for(i=sizeof(data); i<32; i++)
 		printf("%02x ", r82xx_read_cache_reg(priv, i));
 	printf("\n");
@@ -789,11 +788,16 @@ int r82xx_set_gain(struct r82xx_priv *priv, int gain)
 int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned data, unsigned mask)
 {
 	//AGC-Test
-	/*if((i2c_register == 0x13) && (mask & 1))
+	if((i2c_register == 0x13) && (mask & 1))
 	{
 		rtlsdr_set_agc_mode(priv->rtl_dev, data & 1);
 		printf("set agc mode %u\n", data & 1);
-	}*/
+	}
+	if((i2c_register == 0x13) && (mask & 2) && (data & 2))
+	{
+		rtlsdr_reset_demod(priv->rtl_dev);
+		printf("reset demod\n");
+	}
 	return r82xx_write_reg_mask(priv, i2c_register & 0xFF, data & 0xff, mask & 0xff);
 }
 
@@ -801,7 +805,7 @@ static const int r82xx_lna_gains[]  = {
 	0, 36, 80, 114, 138, 152, 176, 206, 236, 264, 280, 290, 302, 324, 344, 352
 };
 static const int r82xx_mixer_gains[]  = {
-	0, 16, 38, 56, 70, 84, 98, 112, 126, 140, 154, 168, 180, 180, 180, 180
+	0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 149, 162, 175, 175, 175, 175
 };
 static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* data)
 {
@@ -815,10 +819,12 @@ static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* dat
 		if(rc < 0)
 			return rc;
 		priv->old_gain = mixer_gain;
+		//print_registers(priv);
+
 	}
 
-	/* Sum_of_all_gains - vga_gain - lna_gain - mixer_gain */
-	return 1057 - (data[0x0c] & 0x0f) * 35 - r82xx_lna_gains[data[3] & 0xf] - r82xx_mixer_gains[mixer_gain];
+	/* Sum_of_all_gains = vga_gain + lna_gain + mixer_gain */
+	return (data[0x0c] & 0x0f) * 35 + r82xx_lna_gains[data[3] & 0xf] + r82xx_mixer_gains[mixer_gain] - 150;
 }
 
 int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *len, int *strength)
@@ -1105,7 +1111,6 @@ static int r82xx_imr(struct r82xx_priv *priv, uint8_t range)
 			if (rc < 80)
 				break;
 		}
-	    //if(gain == 0) print_registers(priv);
 		min = rc;
 		//printf("Mixer=%d, VGA=%d\n", gain, vga);
 
@@ -1146,7 +1151,7 @@ static	uint8_t r82xx_calib_array[] = {
 	0xe8,	//Reg 0x0b	fiter 400kHz
 	0x6f, 	//Reg 0x0c	adc=on, vga code mode, gain = 52.5 dB
 	0x53, 	//Reg 0x0d
-	0x75, 	//Reg 0x0e
+	0x53, 	//Reg 0x0e
 	0x60,	//Reg 0x0f	ring clk = on
 	0x94, 	//Reg 0x10	mixer in = vco out / 32
 	0xbb, 	//Reg 0x11
@@ -1218,7 +1223,6 @@ int r82xx_init(struct r82xx_priv *priv)
 	if (rc < 0)
 		goto err;
 
-	//print_registers(priv);
 	priv->int_freq = 3570 * 1000;
 
 	if ((rc = r82xx_sysfreq_sel(priv, TUNER_DIGITAL_TV)) < 0) goto err;
@@ -1237,4 +1241,9 @@ const int *r82xx_get_gains(int *len)
 {
 	*len = sizeof(r82xx_gains);
 	return r82xx_gains;
+}
+
+int r82xx_set_dither(struct r82xx_priv *priv, int dither)
+{
+	return r82xx_write_reg_mask(priv, 0x12, dither ? 0x00 : 0x10, 0x10);
 }
