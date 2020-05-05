@@ -501,6 +501,19 @@ RTLSDR_API int rtlsdr_get_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned char* d
 
 RTLSDR_API void rtlsdr_cal_imr(const int cal_imr);
 
+RTLSDR_API int rtlsdr_reset_demod(rtlsdr_dev_t *dev);
+
+/*!
+ * Enable or disable frequency dithering for r820t tuners.
+ * Must be performed before freq_set().
+ * Fails for other tuners.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param on 0 means disabled, 1 enabled
+ * \return 0 on success
+ */
+RTLSDR_API int rtlsdr_set_dithering(rtlsdr_dev_t *dev, int dither);
+
 #ifdef __cplusplus
 }
 #endif
