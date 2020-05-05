@@ -92,5 +92,6 @@ int r82xx_set_bandwidth(struct r82xx_priv *priv, int bandwidth,  uint32_t * appl
 int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned data, unsigned mask);
 int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *len, int *strength);
 int r82xx_set_sideband(struct r82xx_priv *priv, int sideband);
+int r82xx_set_dither(struct r82xx_priv *priv, int dither);
 const int *r82xx_get_gains(int *len);
 #endif
