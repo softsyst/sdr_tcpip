@@ -247,7 +247,7 @@ int fc2580_get_i2c_register(void *dev, uint8_t *data, int *len, int *strength)
 		if (rc < 0)
 			return rc;
 	}
-	*strength = 10 * (96 - fc2580_get_rssi(data));
+	*strength = 10 * fc2580_get_rssi(data);
 	return 0;
 }
 
@@ -489,23 +489,3 @@ int fc2580_exit(void *dev)
 	return ret;
 }
 
-int fc2580_set_gain(void *dev, int gain)
-{
-	return 0;
-}
-
-int fc2580_set_gain_mode(void *dev, int manual)
-{
-	int result = 0;
-	/*if( manual == 0)
-	{
-		result |= fc2580_write(dev, 0x45, 0x10);	//internal AGC
-		result |= fc2580_write(dev, 0x4C, 0x00);	//HOLD_AGC polarity
-	}
-	else
-	{
-		result |= fc2580_write(dev, 0x45, 0x20);	//Voltage Control Mode
-		result |= fc2580_write(dev, 0x4C, 0x02);	//HOLD_AGC polarity
-	}*/
-	return result;
-}
