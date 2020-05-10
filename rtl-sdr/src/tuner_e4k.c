@@ -689,8 +689,8 @@ int e4k_init(struct e4k_state *e4k)
 	e4k_write_array(e4k, E4K_REG_FILT2, data, 2);
 
 	/* Set LNA */
-	data[0] = 32;   /* High threshold */
-	data[1] = 14;	/* Low threshold */
+	data[0] = 24;   /* High threshold */
+	data[1] = 12;	/* Low threshold */
 	data[2] = 0x18;	/* LNA calib + loop rate */
 	e4k_write_array(e4k, E4K_REG_AGC4, data, 3);
 
@@ -750,7 +750,7 @@ const int *e4k_get_gains(int *len)
 }
 
 static const int lna_gain_table[] = {
-	-50, -25, -50, -25, 0, 25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 300
+	-50, -25, -50, -25, 0, 25, 50, 75, 100, 125, 150, 175, 200, 250, 250, 250
 };
 static const int mixer_gain_table[] = {
 	40, 120
@@ -765,9 +765,10 @@ static int e4k_get_signal_strength(uint8_t *data)
 	if_gain += if_stage23_gain[(data[0x16] >> 3) & 3];
 	if_gain += if_stage4_gain[(data[0x16] >> 5) & 3];
 	if_gain += if_stage56_gain[data[0x17] & 7];
-	if_gain += if_stage56_gain[(data[0x16] >> 3) & 7];
+	if_gain += if_stage56_gain[(data[0x17] >> 3) & 7];
 	if_gain *= 10;
-	return 990 - if_gain - mixer_gain - lna_gain;
+	//printf("lna=%d, mix=%d, if=%d\n", lna_gain, mixer_gain, if_gain);
+	return if_gain + mixer_gain + lna_gain;
 }
 
 int e4k_set_i2c_register(struct e4k_state *e4k, unsigned i2c_register, unsigned data, unsigned mask)

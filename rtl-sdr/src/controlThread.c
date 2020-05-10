@@ -62,7 +62,7 @@ typedef int socklen_t;
 #endif
 
 #define MAX_I2C_REGISTERS  256
-#define TX_BUF_LEN (5+MAX_I2C_REGISTERS) //1 command, 2 strength, 2 len
+#define TX_BUF_LEN (5+MAX_I2C_REGISTERS) //1 command, 2 tuner_gain, 2 len
 
 
 ctrl_thread_data_t ctrl_thread_data;
@@ -81,10 +81,11 @@ void *ctrl_thread_fn(void *arg)
 	socklen_t rlen;
 
 	int error = 0;
-	int len, result, strength;
+	int len, result, tuner_gain;
 	fd_set connfds;
 	fd_set writefds;
 	int bytesleft, bytessent, index;
+	int old_gain = 0;
 
 	ctrl_thread_data_t *data = (ctrl_thread_data_t *)arg;
 
@@ -138,6 +139,13 @@ void *ctrl_thread_fn(void *arg)
 				haveControlSocket = 1;
 				break;
 			}
+			result = rtlsdr_get_tuner_type(dev);
+			if((result != RTLSDR_TUNER_E4000) && (result != RTLSDR_TUNER_FC2580))
+			{
+				result = rtlsdr_get_tuner_i2c_register(dev, reg_values, &len, &tuner_gain);
+				//printf("len=%d, tuner_gain=%d, R8=%x\n", len, tuner_gain,reg_values[8]);
+			}
+
 		}
 
 		setsockopt(controlSocket, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
@@ -158,8 +166,12 @@ void *ctrl_thread_fn(void *arg)
 				goto sleep;
 
 			len = 0;
-			result = rtlsdr_get_tuner_i2c_register(dev, reg_values, &len, &strength);
-			//printf("len = %d, strength = %d\n", len, strength);
+			result = rtlsdr_get_tuner_i2c_register(dev, reg_values, &len, &tuner_gain);
+			if(old_gain != tuner_gain)
+			{
+				//printf("len = %d, tuner_gain = %d\n", len, tuner_gain);
+				old_gain = tuner_gain;
+			}
 			memset(txbuf, 0, TX_BUF_LEN);
 			if (result)
 				goto sleep;
@@ -168,8 +180,8 @@ void *ctrl_thread_fn(void *arg)
 			txbuf[0] = REPORT_I2C_REGS;
 			txbuf[1] = ((len+2) >> 8) & 0xff;
 			txbuf[2] = (len+2) & 0xff;
-			txbuf[3] = (strength >> 8) & 0xff;
-			txbuf[4] = strength & 0xff;
+			txbuf[3] = (tuner_gain >> 8) & 0xff;
+			txbuf[4] = tuner_gain & 0xff;
 			/* now the message contents */
 			memcpy(&txbuf[5], reg_values, len);
 			len += 5;

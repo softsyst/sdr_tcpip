@@ -30,6 +30,8 @@
 #include "rtl-sdr.h"
 #include "tuner_fc001x.h"
 
+static int gain_mode = 0;
+
 static int fc001x_write(void *dev, uint8_t reg, uint8_t *buf, int len)
 {
 	int rc = rtlsdr_i2c_write_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
@@ -85,21 +87,18 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
 	return fc001x_writereg(dev, reg, val);
 }
 
-/*static int print_registers(void *dev)
+static int print_registers(void *dev)
 {
 	uint8_t data[22];
 	unsigned int i;
 
 	if (fc001x_read(dev, 0, data, sizeof(data)) < 0)
 		return -1;
-	for(i=0; i<16; i++)
-		printf("%02x ", data[i]);
-	printf("\n");
-	for(i=16; i<22; i++)
+	for(i=0; i<22; i++)
 		printf("%02x ", data[i]);
 	printf("\n");
 	return 0;
-}*/
+}
 
 
 /* Incomplete list of FC0012 register settings:
@@ -144,6 +143,7 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
  *								(big value -> low freq)
  *							7   ?
  * IF_GAIN			0x12	0-4	2 dB/step
+ *							5-7	1 dB/step
  * LNA_GAIN			0x13	3-4	Low noise amp gain
  * 								 0x02=min, 0x08=middle, 0x10=max
  * LNA_COMPS		0x15	3	?
@@ -157,7 +157,10 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
  * LNA_FORCE		0x0d	0	LNA Gain: 1=variable, 0=maximal
  *					0x0d	4	1 = forcing rc_cal
  * RC_cal value		0x10	0-3	rc_cal value
+ * 					0x12	Mixer gain ?
+ *								0x00=low, 0x0c=middle, 0x08=high, 0x0a=max
  * IF_GAIN			0x13	0-4	2 dB/step
+ *							5-7	1 dB/step
  * LNA_GAIN			0x14	0-4	Low noise amp gain
  * 								 0x02=min, 0x08=middle, 0x10=max
  * BAND				0x14	5-6	0x00=VHF, 0x20=GPS, 0x40=UHF
@@ -498,6 +501,7 @@ int fc0013_set_freq(void *dev, uint32_t freq) {
 
 int fc001x_set_gain_mode(void *dev, int manual)
 {
+	gain_mode = manual;
 	return fc001x_write_reg_mask(dev, 0x0d, manual ? 8 : 0, 0x08);
 }
 
@@ -537,7 +541,9 @@ int fc0012_set_gain(void *dev, int gain)
 
 int fc0013_set_gain(void *dev, int gain)
 {
-	return fc001x_set_gain(dev, gain, 0x13, 0x14);
+	int ret = fc001x_writereg(dev, 0x12, 0);
+	ret |= fc001x_set_gain(dev, gain, 0x13, 0x14);
+	return ret;
 }
 
 int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
@@ -583,25 +589,73 @@ static const int lna_gain_table[] = {
 	/* low gain */
 	-28, -27, -43, -32, -27, -28, -25, -27
 };
-static const int mixer_gain_table[] = { 83, 65, 31, 48, 0, 0, 13, 0};
+static const int if_gain_table[] = { 83, 65, 31, 48, 0, 0, 13, 0};
 
-static int fc001x_get_signal_strength(uint8_t vga, uint8_t lna)
+static const int mix_gain_table[] = { 0,  0,   0,   0, 21, 21, 21, 21,
+									 60, 60, 122, 100, 42, 42, 42, 42};
+
+static int fc001x_get_signal_strength(uint8_t vga, uint8_t lna, uint8_t mix)
 {
 	int if_gain = (vga & 0x1f) * 20;
-	int mixer_gain = mixer_gain_table[(vga >> 5) & 0x07];
 	int lna_gain = lna_gain_table[lna & 0x1f];
-	return 900 - if_gain - mixer_gain - lna_gain;
+	int mix_gain = mix_gain_table[mix & 0x0f] + ((mix >> 4) & 3) * 6;
+	if_gain += if_gain_table[(vga >> 5) & 0x07];
+	return if_gain + lna_gain + mix_gain + 40;
 }
 
-static int fc001x_get_i2c_register(void *dev, unsigned char* data, int *len, int *strength,
+static int fc001x_get_i2c_register(void *dev, unsigned char* data, int *len, int *tuner_gain,
 									uint8_t if_reg, uint8_t lna_reg)
 {
 	int rc;
+	uint8_t mixer;
 
+	if(gain_mode == 0)
+	{
+		if(if_reg == 0x13) //FC0013
+		{
+			rc = fc001x_writereg(dev, 0x12, 0);
+			if (rc < 0)
+				return rc;
+		}
+		rc |= fc001x_writereg(dev, if_reg, 0);
+		if (rc < 0)
+			return rc;
+	}
 	rc = fc001x_read(dev, 0, data, *len);
 	if (rc < 0)
 		return rc;
-	*strength = fc001x_get_signal_strength(data[if_reg], data[lna_reg]);
+	if(if_reg == 0x13) //FC0013
+		mixer = data[0x12];
+	else
+		mixer = 0;
+	*tuner_gain = fc001x_get_signal_strength(data[if_reg], data[lna_reg], mixer);
+	if(gain_mode == 0)
+	{
+		int lna = data[lna_reg] & 0x1f;
+		if(lna == 0x10)
+		{
+			if(*tuner_gain < 450)
+				lna = 0x08;
+		}
+		else if(lna == 0x02)
+		{
+			if(*tuner_gain > 200)
+				lna = 0x08;
+		}
+		else // 0x08
+		{
+			if (*tuner_gain > 500)
+				lna = 0x10;
+			else if (*tuner_gain < 150)
+				lna = 0x02;
+		}
+		if(lna != (data[lna_reg] & 0x1f))
+		{
+			rc = fc001x_write_reg_mask(dev, lna_reg, lna, 0x1f);
+			//printf("tuner_gain=%d, lna=%x\n",*tuner_gain,lna);
+		}
+		return rc;
+	}
 	return 0;
 }
 

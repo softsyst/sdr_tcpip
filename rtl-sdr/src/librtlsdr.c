@@ -309,8 +309,8 @@ static rtlsdr_tuner_iface_t tuners[] = {
 	},
 	{
 		fc2580_init, fc2580_exit,
-		fc2580_set_freq, fc2580_set_bw, fc2580_set_gain, NULL,
-		fc2580_set_gain_mode, fc2580_set_i2c_register,
+		fc2580_set_freq, fc2580_set_bw, NULL, NULL,
+		NULL, fc2580_set_i2c_register,
 		fc2580_get_i2c_register, NULL, NULL
 	},
 	{
@@ -1255,6 +1255,18 @@ int rtlsdr_get_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned char *data, int *l
 	return r;
 }
 
+int rtlsdr_set_dithering(rtlsdr_dev_t *dev, int dither)
+{
+	int r = 0;
+	if ((dev->tuner_type == RTLSDR_TUNER_R820T) ||
+				(dev->tuner_type == RTLSDR_TUNER_R828D)) {
+		rtlsdr_set_i2c_repeater(dev, 1);
+		r = r82xx_set_dither(&dev->r82xx_p, dither);
+		rtlsdr_set_i2c_repeater(dev, 0);
+	}
+	return r;
+}
+
 int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 {
 	int r = 0;
@@ -1495,6 +1507,7 @@ int rtlsdr_get_offset_tuning(rtlsdr_dev_t *dev)
 
 	return (dev->offs_freq) ? 1 : 0;
 }
+
 
 static rtlsdr_dongle_t *find_known_device(uint16_t vid, uint16_t pid)
 {
@@ -2426,3 +2439,11 @@ void rtlsdr_cal_imr(const int val)
 	cal_imr = val;
 }
 
+int rtlsdr_reset_demod(rtlsdr_dev_t *dev)
+{
+	/* reset demod (bit 3, soft_rst) */
+	uint8_t r = rtlsdr_demod_read_reg(dev, 1, 0x01, 1);
+	rtlsdr_demod_write_reg(dev, 1, 0x01, r | 0x04, 1);
+	rtlsdr_demod_write_reg(dev, 1, 0x01, r & 0xfb, 1);
+	return 0;
+}

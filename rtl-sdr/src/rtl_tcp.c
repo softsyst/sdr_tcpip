@@ -377,18 +377,20 @@ static void *command_worker(void *arg)
 			rtlsdr_set_tuner_i2c_register(dev, (param >> 20) & 0xfff, (param >> 12) & 0xff, param & 0xfff);
 			break;
 		case SET_SIDEBAND://0x46
-			if(param)
-				param = 1;
 			printf("set to %s sideband\n", param ? "upper" : "lower");
 			rtlsdr_set_tuner_sideband(dev, param);
 			break;
-		case REPORT_I2C_REGS:
+		case REPORT_I2C_REGS://0x48
 			if(param)
 				param = 1;
 			ctrldata.report_i2c = param;  /* (de)activate reporting */
 			printf("read registers %d\n", param);
 			printf("activating response channel on port %d with %s I2C reporting\n",
 					ctrldata.port, (param ? "active" : "inactive") );
+			break;
+		case SET_DITHERING://0x49
+			printf("%sable dithering\n", param ? "en" : "dis");
+			rtlsdr_set_dithering(dev, param);
 			break;
 		default:
 			break;
@@ -455,7 +457,7 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.89 for QIRX, %s\n\n", __DATE__);
+		   "Version 0.90 for QIRX, %s\n\n", __DATE__);
 
 	while ((opt = getopt(argc, argv, "a:b:cd:f:g:l:n:O:p:us:vr:w:D:TP:")) != -1) {
 		switch (opt) {
@@ -719,6 +721,7 @@ out:
 	closesocket(listensocket);
 
 	do_exit_thrd_ctrl = 1;
+	ctrldata.pDoExit = &do_exit_thrd_ctrl;
 	pthread_join(thread_ctrl, &status);
 	closesocket(s);
 #ifdef _WIN32
