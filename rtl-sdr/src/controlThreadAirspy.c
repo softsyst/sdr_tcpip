@@ -121,7 +121,7 @@ void *ctrl_thread_fn(void *arg)
 #endif
 
 	while (1) {
-		printf("listening on Control port %d...\n", port);
+		//printf("listening on Control port %d...\n", port);
 		retval = listen(listensocket, 1);
 		if (retval == SOCKET_ERROR)
 #ifdef _WIN32

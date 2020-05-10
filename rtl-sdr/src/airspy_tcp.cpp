@@ -691,7 +691,7 @@ extern "C"
 		struct sigaction sigact, sigign;
 #endif
 		printf("airspy_tcp, an I/Q spectrum server Airspy receivers\n"
-			"Version 0.12 for QIRX, 08.11.2019\n\n");
+			"Version 0.12a for QIRX, 30.04.2020\n\n");
 
 		//for (int k = 0; k < argc; k++)
 		//{
@@ -855,10 +855,18 @@ extern "C"
 			airspy_exit();
 			return -1;
 		}
+		//rc = airspy_set_mixer_agc(device, 0);
+		//if (rc < 0)
+		//	return rc;
+
+		//rc = airspy_set_lna_agc(device, 0);
+		//if (rc < 0)
+		//	return rc;
+
 
 		//if (0 == gain) {
 		//	/* Enable automatic gain */
-		//	r = set_agc(1);
+		//r = set_agc(1);
 		//	if (r != AIRSPY_SUCCESS) {
 		//		fprintf(stderr, "airspy_set agc failed: %s (%d)\n", airspy_error_name(rr), r);
 		//	}
@@ -883,6 +891,12 @@ extern "C"
 		}
 
 		set_agc(1);
+		if (r != AIRSPY_SUCCESS) {
+			fprintf(stderr, "set_agc() failed: %s (%d)\n", airspy_error_name(rr), r);
+			airspy_close(dev);
+			airspy_exit();
+			return -1;
+		}
 
 #ifndef _WIN32
 		sigact.sa_handler = sighandler;
