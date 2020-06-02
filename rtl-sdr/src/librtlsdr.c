@@ -96,21 +96,8 @@ enum rtlsdr_async_status {
  * the DVB driver uses different ones
  */
 static const int fir_default[FIR_LEN] = {
-// default
 	-54, -36, -41, -40, -32, -14, 14, 53,	/* 8 bit signed */
 	101, 156, 215, 273, 327, 372, 404, 421	/* 12 bit signed */
-// raised cosine scaled 1.98
-//	20, 31, 44, 58, 74, 91, 109, 127,   /* 8 bit signed */
-//	145, 162, 178, 192, 204, 214, 220, 223  /* 12 bit signed */
-// parks optimazed for sample rate 2400000 scaled 1.2
-//	10, 12, 18, 26, 36, 47, 59, 72, /* 8 bit signed */
-//	85, 98, 111, 123, 133, 141, 147, 150    /* 12 bit signed */
-// rectangular optimazed for sample rate 960000 scaled 1.2
-//	50, 54, 57, 60, 63, 65, 68, 70, /* 8 bit signed */
-//	72, 74, 75, 77, 78, 78, 79, 79  /* 12 bit signed */
-// the FIR coefficients I used (where I say improved FIR)
-//	45, 25, 32, 39, 46, 53, 61, 69, /* 8 bit signed */
-//	76, 83, 89, 94, 99, 102, 105, 106  /* 12 bit signed */
 };
 static int cal_imr = 0;
 
@@ -446,9 +433,7 @@ enum usb_reg {
 	USB_EPA_IRQSTAT	    = 0x2150, /* EP A interrupt status */
 	USB_EPA_IRQEN  	    = 0x2154, /* EP A interrupt enable */
 	USB_EPA_MAXPKT		= 0x2158, /* EP A max packet size */
-	USB_EPA_MAXPKT_2	= 0x215a, /* EP A max packet size */
 	USB_EPA_FIFO_CFG	= 0x2160, /* EP A FIFO configure */
-	USB_EPA_FIFO_CFG_2 	= 0x2162, /* EP A FIFO configure */
 	/* Debug Registers */
 	USB_PHYTSTDIS      	= 0x2F04, /* PHY test disable */
 	USB_TOUT_VAL       	= 0x2F08, /* USB time-out time */
@@ -473,42 +458,42 @@ enum usb_reg {
 
 enum ir_reg {
 	/* demod control registers */
-	DEMOD_CTL		= 0x3000, /* control register for DVB-T demodulator */
-	GPO				= 0x3001, /* output value of GPIO */
-	GPI				= 0x3002, /* input value of GPIO */
-	GPOE			= 0x3003, /* output enable of GPIO */
-	GPD				= 0x3004, /* direction control for GPIO */
-	SYSINTE			= 0x3005, /* system interrupt enable */
-	SYSINTS			= 0x3006, /* system interrupt status */
-	GP_CFG0			= 0x3007, /* PAD configuration for GPIO0-GPIO3 */
-	GP_CFG1			= 0x3008, /* PAD configuration for GPIO4 */
-	SYSINTE_1		= 0x3009,
-	SYSINTS_1		= 0x300a,
-	DEMOD_CTL_1		= 0x300b,
-	IR_SUSPEND		= 0x300c,
+	DEMOD_CTL			= 0x3000, /* control register for DVB-T demodulator */
+	GPO					= 0x3001, /* output value of GPIO */
+	GPI					= 0x3002, /* input value of GPIO */
+	GPOE				= 0x3003, /* output enable of GPIO */
+	GPD					= 0x3004, /* direction control for GPIO */
+	SYSINTE				= 0x3005, /* system interrupt enable */
+	SYSINTS				= 0x3006, /* system interrupt status */
+	GP_CFG0				= 0x3007, /* PAD configuration for GPIO0-GPIO3 */
+	GP_CFG1				= 0x3008, /* PAD configuration for GPIO4 */
+	SYSINTE_1			= 0x3009,
+	SYSINTS_1			= 0x300A,
+	DEMOD_CTL_1			= 0x300B,
+	IR_SUSPEND			= 0x300C,
 	/* IrDA registers */
-	SYS_IRRC_PSR	= 0x3020, /* IR protocol selection */
-	SYS_IRRC_PER	= 0x3024, /* IR protocol extension */
-	SYS_IRRC_SF		= 0x3028, /* IR sampling frequency */
-	SYS_IRRC_DPIR	= 0x302C, /* IR data package interval */
-	SYS_IRRC_CR		= 0x3030, /* IR control */
-	SYS_IRRC_RP		= 0x3034, /* IR read port */
-	SYS_IRRC_SR		= 0x3038, /* IR status */
+	SYS_IRRC_PSR		= 0x3020, /* IR protocol selection */
+	SYS_IRRC_PER		= 0x3024, /* IR protocol extension */
+	SYS_IRRC_SF			= 0x3028, /* IR sampling frequency */
+	SYS_IRRC_DPIR		= 0x302C, /* IR data package interval */
+	SYS_IRRC_CR			= 0x3030, /* IR control */
+	SYS_IRRC_RP			= 0x3034, /* IR read port */
+	SYS_IRRC_SR			= 0x3038, /* IR status */
 	/* I2C master registers */
-	SYS_I2CCR		= 0x3040, /* I2C clock */
-	SYS_I2CMCR		= 0x3044, /* I2C master control */
-	SYS_I2CMSTR		= 0x3048, /* I2C master SCL timing */
-	SYS_I2CMSR		= 0x304C, /* I2C master status */
-	SYS_I2CMFR		= 0x3050  /* I2C master FIFO */
+	SYS_I2CCR			= 0x3040, /* I2C clock */
+	SYS_I2CMCR			= 0x3044, /* I2C master control */
+	SYS_I2CMSTR			= 0x3048, /* I2C master SCL timing */
+	SYS_I2CMSR			= 0x304C, /* I2C master status */
+	SYS_I2CMFR			= 0x3050  /* I2C master FIFO */
 };
 
 enum sys_reg {
 	/* IR registers */
-	IR_RX_BUF		= 0xFC00,
-	IR_RX_IE		= 0xFD00,
-	IR_RX_IF		= 0xFD01,
-	IR_RX_CTRL		= 0xFD02,
-	IR_RX_CFG		= 0xFD03,
+	IR_RX_BUF			= 0xFC00,
+	IR_RX_IE			= 0xFD00,
+	IR_RX_IF			= 0xFD01,
+	IR_RX_CTRL			= 0xFD02,
+	IR_RX_CFG			= 0xFD03,
 	IR_MAX_DURATION0	= 0xFD04,
 	IR_MAX_DURATION1	= 0xFD05,
 	IR_IDLE_LEN0		= 0xFD06,
@@ -540,7 +525,6 @@ enum blocks {
 	TUNB  	= 0x0300,
 	IICB 	= 0x0600
 };
-
 
 static inline int rtlsdr_read_array(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, uint8_t *array, uint8_t len)
 {
@@ -574,7 +558,6 @@ static int rtlsdr_write_reg(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, ui
 		data[0] = val >> 8;
 		data[1] = val & 0xff;
 	}
-	//return rtlsdr_write_array(dev, block, addr, data, len);
 	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index | 0x10, data, len, CTRL_TIMEOUT);
 	if (r < 0)
 		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
@@ -620,29 +603,32 @@ int rtlsdr_i2c_read_fn(void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int l
 	return rtlsdr_read_array((rtlsdr_dev_t *)dev, TUNB, reg << 8 | addr, buf, len);
 }
 
-static uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, uint8_t len)
+uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, uint8_t len)
 {
 	unsigned char data[2];
 
 	int r = libusb_control_transfer(dev->devh, CTRL_IN, 0, (addr << 8) | RTL2832_DEMOD_ADDR,
-									index, data, len, CTRL_TIMEOUT);
+									page, data, len, CTRL_TIMEOUT);
 	if (r != len)
 		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
 
-	return (data[1] << 8) | data[0];
+	if (len == 1)
+		return data[0];
+	else
+		return (data[0] << 8) | data[1];
 }
 
-static int rtlsdr_demod_read_regs(rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, unsigned char *data, uint8_t len)
+int rtlsdr_demod_read_regs(rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, unsigned char *data, uint8_t len)
 {
 	int r = libusb_control_transfer(dev->devh, CTRL_IN, 0, (addr << 8) | RTL2832_DEMOD_ADDR,
-								index, data, len, CTRL_TIMEOUT);
+									page, data, len, CTRL_TIMEOUT);
 	if (r != len)
 		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
 
 	return r;
 }
 
-static int rtlsdr_demod_write_reg(rtlsdr_dev_t *dev, uint8_t index, uint16_t addr, uint16_t val, uint8_t len)
+int rtlsdr_demod_write_reg(rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint16_t val, uint8_t len)
 {
 	int r;
 	unsigned char data[2];
@@ -656,7 +642,7 @@ static int rtlsdr_demod_write_reg(rtlsdr_dev_t *dev, uint8_t index, uint16_t add
 		data[1] = val & 0xff;
 	}
 
-	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index | 0x10, data, len, CTRL_TIMEOUT);
+	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, page | 0x10, data, len, CTRL_TIMEOUT);
 	if (r != len)
 		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
 
@@ -678,8 +664,8 @@ void rtlsdr_set_gpio_bit(rtlsdr_dev_t *dev, uint8_t gpio, int val)
 static void rtlsdr_set_gpio_output(rtlsdr_dev_t *dev, uint8_t gpio)
 {
 	uint8_t r;
-	gpio = 1 << gpio;
 
+	gpio = 1 << gpio;
 	r = rtlsdr_read_reg(dev, SYSB, GPD);
 	rtlsdr_write_reg(dev, SYSB, GPD, r & ~gpio, 1);
 	r = rtlsdr_read_reg(dev, SYSB, GPOE);
@@ -730,6 +716,17 @@ static int rtlsdr_set_fir(rtlsdr_dev_t *dev)
 	return 0;
 }
 
+int rtlsdr_reset_demod(rtlsdr_dev_t *dev)
+{
+	/* reset demod (bit 3, soft_rst) */
+	uint8_t r = rtlsdr_demod_read_reg(dev, 1, 0x01, 1);
+	rtlsdr_demod_write_reg(dev, 1, 0x01, r | 0x04, 1);
+	rtlsdr_demod_write_reg(dev, 1, 0x01, r & 0xfb, 1);
+	return 0;
+}
+
+//#include "entfernt.c"
+
 static void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 {
 	unsigned int i;
@@ -746,9 +743,7 @@ static void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 	rtlsdr_write_reg(dev, SYSB, DEMOD_CTL_1, 0x22, 1);
 	rtlsdr_write_reg(dev, SYSB, DEMOD_CTL, 0xe8, 1);
 
-	/* reset demod (bit 3, soft_rst) */
-	rtlsdr_demod_write_reg(dev, 1, 0x01, 0x14, 1);
-	rtlsdr_demod_write_reg(dev, 1, 0x01, 0x10, 1);
+	rtlsdr_reset_demod(dev);
 
 	/* disable spectrum inversion and adjacent channel rejection */
 	rtlsdr_demod_write_reg(dev, 1, 0x15, 0x00, 1);
@@ -763,15 +758,11 @@ static void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 	rtlsdr_demod_write_reg(dev, 0, 0x19, 0x05, 1);
 
 	/* init FSM state-holding register */
-	rtlsdr_demod_write_reg(dev, 1, 0x92, 0x00, 1);
 	rtlsdr_demod_write_reg(dev, 1, 0x93, 0xf0, 1);
 	rtlsdr_demod_write_reg(dev, 1, 0x94, 0x0f, 1);
 
 	/* disable AGC (en_dagc, bit 0) (this seems to have no effect) */
 	rtlsdr_demod_write_reg(dev, 1, 0x11, 0x00, 1);
-
-	/* disable RF and IF AGC loop */
-	//rtlsdr_demod_write_reg(dev, 1, 0x04, 0x00, 1);
 
 	/* disable PID filter (enable_PID = 0) */
 	rtlsdr_demod_write_reg(dev, 0, 0x61, 0x60, 1);
@@ -789,8 +780,6 @@ static void rtlsdr_init_baseband(rtlsdr_dev_t *dev)
 	/* disable 4.096 MHz clock output on pin TP_CK0 */
 	rtlsdr_demod_write_reg(dev, 0, 0x0d, 0x83, 1);
 
-	//AAGC_LOOP_GAIN
-	rtlsdr_demod_write_reg(dev, 1, 0xc7, 0x2c, 1);
 }
 
 static int rtlsdr_deinit_baseband(rtlsdr_dev_t *dev)
@@ -815,16 +804,19 @@ static int rtlsdr_deinit_baseband(rtlsdr_dev_t *dev)
 void print_demod_register(rtlsdr_dev_t *dev, uint8_t page)
 {
 	unsigned char data[16];
-	int i, j;
+	int i, j, k;
 
 	printf("Page %d\n", page);
 	printf("   0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
 	for(i=0; i<16; i++)
 	{
-		rtlsdr_demod_read_regs(dev, page, i*16, data, 16);
 		printf("%01x ", i);
-		for(j=0; j<16; j++)
-			printf("%02x ", data[j]);
+		for(j=0; j<4; j++)
+		{
+			rtlsdr_demod_read_regs(dev, page, i*16+j*4, data, 4);
+			for(k=0; k<4; k++)
+				printf("%02x ", data[k]);
+		}
 		printf("\n");
 	}
 }
@@ -1231,8 +1223,6 @@ int rtlsdr_set_tuner_i2c_register(rtlsdr_dev_t *dev, unsigned i2c_register, unsi
 	if (!dev || !dev->tuner)
 		return -1;
 	if (dev->tuner->set_i2c_register) {
-		//r =	rtlsdr_demod_write_reg(dev, i2c_register, mask, data, 1);
-		//print_demod_register(dev, 1);
 		rtlsdr_set_i2c_repeater(dev, 1);
 		r = dev->tuner->set_i2c_register((void *)dev, i2c_register, data, mask);
 		rtlsdr_set_i2c_repeater(dev, 0);
@@ -1388,7 +1378,7 @@ int rtlsdr_set_direct_sampling(rtlsdr_dev_t *dev, int on)
 		}
 
 		/* opt_adc_iq = 0, default ADC_I/ADC_Q datapath */
-		r |= rtlsdr_demod_write_reg(dev, 0, 0x06, 0x80, 1);
+		//r |= rtlsdr_demod_write_reg(dev, 0, 0x06, 0x80, 1);
 
 		fprintf(stderr, "Disabled direct sampling mode\n");
 		dev->direct_sampling = 0;
@@ -1761,6 +1751,7 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 		libusb_reset_device(dev->devh);
 	}
 	rtlsdr_init_baseband(dev);
+
 	dev->dev_lost = 0;
 
 	/* Probe tuners */
@@ -1816,6 +1807,7 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	}
 
 found:
+	//rtl2832_init(dev);
 	/* use the rtl clock value by default */
 	dev->tun_xtal = dev->rtl_xtal;
 	dev->tuner = &tuners[dev->tuner_type];
@@ -1825,19 +1817,80 @@ found:
 		dev->tun_xtal = FC2580_XTAL_FREQ;
 		break;
 	case RTLSDR_TUNER_E4000:
+		//E4000
+		rtlsdr_demod_write_reg(dev, 1, 0x12, 0x5a, 1);//DVBT_DAGC_TRG_VAL
+		rtlsdr_demod_write_reg(dev, 1, 0x02, 0x40, 1);//DVBT_AGC_TARG_VAL_0
+		rtlsdr_demod_write_reg(dev, 1, 0x03, 0x5a, 1);//DVBT_AGC_TARG_VAL_8_1
+		rtlsdr_demod_write_reg(dev, 1, 0xc7, 0x30, 1);//DVBT_AAGC_LOOP_GAIN
+		rtlsdr_demod_write_reg(dev, 1, 0x04, 0xd0, 1);//DVBT_LOOP_GAIN2_3_0
+		rtlsdr_demod_write_reg(dev, 1, 0x05, 0xbe, 1);//DVBT_LOOP_GAIN2_4
+		rtlsdr_demod_write_reg(dev, 1, 0xc8, 0x18, 1);//DVBT_LOOP_GAIN3
+		rtlsdr_demod_write_reg(dev, 1, 0x06, 0x35, 1);//DVBT_VTOP1
+		rtlsdr_demod_write_reg(dev, 1, 0xc9, 0x21, 1);//DVBT_VTOP2
+		rtlsdr_demod_write_reg(dev, 1, 0xca, 0x21, 1);//DVBT_VTOP3
+		rtlsdr_demod_write_reg(dev, 1, 0xcb, 0x00, 1);//DVBT_KRF1
+		rtlsdr_demod_write_reg(dev, 1, 0x07, 0x40, 1);//DVBT_KRF2
+		rtlsdr_demod_write_reg(dev, 1, 0xcd, 0x10, 1);//DVBT_KRF3
+		rtlsdr_demod_write_reg(dev, 1, 0xce, 0x10, 1);//DVBT_KRF4
+		rtlsdr_demod_write_reg(dev, 0, 0x11, 0xe9d4, 2);//DVBT_AD7_SETTING
+		rtlsdr_demod_write_reg(dev, 1, 0xe5, 0xf0, 1);//DVBT_EN_GI_PGA
+		rtlsdr_demod_write_reg(dev, 1, 0xd9, 0x00, 1);//DVBT_THD_LOCK_UP
+		rtlsdr_demod_write_reg(dev, 1, 0xdb, 0x00, 1);//DVBT_THD_LOCK_DW
+		rtlsdr_demod_write_reg(dev, 1, 0xdd, 0x14, 1);//DVBT_THD_UP1
+		rtlsdr_demod_write_reg(dev, 1, 0xde, 0xec, 1);//DVBT_THD_DW1
+		rtlsdr_demod_write_reg(dev, 1, 0xd8, 0x0c, 1);//DVBT_INTER_CNT_LEN
+		rtlsdr_demod_write_reg(dev, 1, 0xe6, 0x02, 1);//DVBT_GI_PGA_STATE
+		rtlsdr_demod_write_reg(dev, 1, 0xd7, 0x09, 1);//DVBT_EN_AGC_PGA
+		rtlsdr_demod_write_reg(dev, 0, 0x10, 0x49, 1);//DVBT_REG_GPO
+		rtlsdr_demod_write_reg(dev, 0, 0x0d, 0x85, 1);//DVBT_REG_MON,DVBT_REG_MONSEL
+ 		rtlsdr_demod_write_reg(dev, 0, 0x13, 0x02, 1);
+		break;
 	case RTLSDR_TUNER_FC0012:
 	case RTLSDR_TUNER_FC0013:
-		/* AGC up/down mode */
-		r = rtlsdr_demod_write_reg(dev, 1, 0xd7, 0x09, 1);//DVBT_EN_AGC_PGA
-		r = rtlsdr_demod_write_reg(dev, 1, 0xd8, 0x0c, 1);//DVBT_INTER_CNT_LEN
-		r = rtlsdr_demod_write_reg(dev, 1, 0xd9, 0x00, 1);//DVBT_THD_LOCK_UP
-		r = rtlsdr_demod_write_reg(dev, 1, 0xdb, 0x00, 1);//DVBT_THD_LOCK_DW
-		r = rtlsdr_demod_write_reg(dev, 1, 0xe6, 0x02, 1);//DVBT_GI_PGA_STATE
+		//FC0012
+		rtlsdr_demod_write_reg(dev, 1, 0x12, 0x5a, 1);//DVBT_DAGC_TRG_VAL
+		rtlsdr_demod_write_reg(dev, 1, 0x02, 0x40, 1);//DVBT_AGC_TARG_VAL_0
+		rtlsdr_demod_write_reg(dev, 1, 0x03, 0x5a, 1);//DVBT_AGC_TARG_VAL_8_1
+		rtlsdr_demod_write_reg(dev, 1, 0xc7, 0x2c, 1);//DVBT_AAGC_LOOP_GAIN
+		rtlsdr_demod_write_reg(dev, 1, 0x04, 0xcc, 1);//DVBT_LOOP_GAIN2_3_0
+		rtlsdr_demod_write_reg(dev, 1, 0x05, 0xbe, 1);//DVBT_LOOP_GAIN2_4
+		rtlsdr_demod_write_reg(dev, 1, 0xc8, 0x16, 1);//DVBT_LOOP_GAIN3
+		rtlsdr_demod_write_reg(dev, 1, 0x06, 0x35, 1);//DVBT_VTOP1
+		rtlsdr_demod_write_reg(dev, 1, 0xc9, 0x21, 1);//DVBT_VTOP2
+		rtlsdr_demod_write_reg(dev, 1, 0xca, 0x21, 1);//DVBT_VTOP3
+		rtlsdr_demod_write_reg(dev, 1, 0xcb, 0x00, 1);//DVBT_KRF1
+		rtlsdr_demod_write_reg(dev, 1, 0x07, 0x40, 1);//DVBT_KRF2
+		rtlsdr_demod_write_reg(dev, 1, 0xcd, 0x10, 1);//DVBT_KRF3
+		rtlsdr_demod_write_reg(dev, 1, 0xce, 0x10, 1);//DVBT_KRF4
+		rtlsdr_demod_write_reg(dev, 0, 0x11, 0xe9bf, 2);//DVBT_AD7_SETTING
+		rtlsdr_demod_write_reg(dev, 1, 0xe5, 0xf0, 1);//DVBT_EN_GI_PGA
+		rtlsdr_demod_write_reg(dev, 1, 0xd9, 0x00, 1);//DVBT_THD_LOCK_UP
+		rtlsdr_demod_write_reg(dev, 1, 0xdb, 0x00, 1);//DVBT_THD_LOCK_DW
+		rtlsdr_demod_write_reg(dev, 1, 0xdd, 0x11, 1);//DVBT_THD_UP1
+		rtlsdr_demod_write_reg(dev, 1, 0xde, 0xef, 1);//DVBT_THD_DW1
+		rtlsdr_demod_write_reg(dev, 1, 0xd8, 0x0c, 1);//DVBT_INTER_CNT_LEN
+		rtlsdr_demod_write_reg(dev, 1, 0xe6, 0x02, 1);//DVBT_GI_PGA_STATE
+		rtlsdr_demod_write_reg(dev, 1, 0xd7, 0x09, 1);//DVBT_EN_AGC_PGA
 		break;
 	case RTLSDR_TUNER_R828D:
 		dev->tun_xtal = R828D_XTAL_FREQ;
 		/* fall-through */
 	case RTLSDR_TUNER_R820T:
+		rtlsdr_demod_write_reg(dev, 1, 0x12, 0x5a, 1);//DVBT_DAGC_TRG_VAL
+		rtlsdr_demod_write_reg(dev, 1, 0x02, 0x40, 1);//DVBT_AGC_TARG_VAL_0
+		rtlsdr_demod_write_reg(dev, 1, 0x03, 0x80, 1);//DVBT_AGC_TARG_VAL_8_1
+		rtlsdr_demod_write_reg(dev, 1, 0xc7, 0x24, 1);//DVBT_AAGC_LOOP_GAIN
+		rtlsdr_demod_write_reg(dev, 1, 0x04, 0xcc, 1);//DVBT_LOOP_GAIN2_3_0
+		rtlsdr_demod_write_reg(dev, 1, 0x05, 0xbe, 1);//DVBT_LOOP_GAIN2_4
+		rtlsdr_demod_write_reg(dev, 1, 0xc8, 0x14, 1);//DVBT_LOOP_GAIN3
+		rtlsdr_demod_write_reg(dev, 1, 0x06, 0x35, 1);//DVBT_VTOP1
+		rtlsdr_demod_write_reg(dev, 1, 0xc9, 0x21, 1);//DVBT_VTOP2
+		rtlsdr_demod_write_reg(dev, 1, 0xca, 0x21, 1);//DVBT_VTOP3
+		rtlsdr_demod_write_reg(dev, 1, 0xcb, 0x00, 1);//DVBT_KRF1
+		rtlsdr_demod_write_reg(dev, 1, 0x07, 0x40, 1);//DVBT_KRF2
+		rtlsdr_demod_write_reg(dev, 1, 0xcd, 0x10, 1);//DVBT_KRF3
+		rtlsdr_demod_write_reg(dev, 1, 0xce, 0x10, 1);//DVBT_KRF4
+		rtlsdr_demod_write_reg(dev, 0, 0x11, 0xe9f4, 2);//DVBT_AD7_SETTING
 		/* disable Zero-IF mode */
 		rtlsdr_demod_write_reg(dev, 1, 0xb1, 0x1a, 1);
 		/* only enable In-phase ADC input */
@@ -1861,8 +1914,6 @@ found:
 	rtlsdr_set_i2c_repeater(dev, 0);
 
 	*out_dev = dev;
-	//print_demod_register(dev, 0);
-	//print_demod_register(dev, 1);
 
 	return 0;
 err:
@@ -2439,11 +2490,3 @@ void rtlsdr_cal_imr(const int val)
 	cal_imr = val;
 }
 
-int rtlsdr_reset_demod(rtlsdr_dev_t *dev)
-{
-	/* reset demod (bit 3, soft_rst) */
-	uint8_t r = rtlsdr_demod_read_reg(dev, 1, 0x01, 1);
-	rtlsdr_demod_write_reg(dev, 1, 0x01, r | 0x04, 1);
-	rtlsdr_demod_write_reg(dev, 1, 0x01, r & 0xfb, 1);
-	return 0;
-}
