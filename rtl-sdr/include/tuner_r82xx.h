@@ -35,7 +35,7 @@
 #define R82XX_IF_FREQ		3570000
 
 #define REG_SHADOW_START	5
-#define NUM_REGS			27
+#define NUM_REGS			28 //27
 
 
 enum r82xx_chip {
@@ -66,6 +66,8 @@ struct r82xx_priv {
 	const struct r82xx_config	*cfg;
 	uint8_t						regs[NUM_REGS];
 	uint32_t					int_freq;
+	uint32_t					freq; //in MHz
+	int16_t						abs_gain;
 	uint8_t						input;
 	uint8_t						old_gain;
 	uint8_t						reg8[16];
@@ -73,6 +75,8 @@ struct r82xx_priv {
 	int							imr_done;
 	int							init_done;
 	int							sideband;
+	int							get_signal_strength;
+	int							old_input;
 	void 						*rtl_dev;
 };
 

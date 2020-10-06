@@ -22,7 +22,7 @@ HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABI
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Function prototypes copied from qt-dab, Jan van Katwijk, Lazy Chair Computing
-Modification by Clem Schmidt, https://softsyst.com, for QIRX
+Modification by Clem Schmidt, https://qirx.softsyst.com, for QIRX
 */
 
 #ifndef __AIRSPY_H__
