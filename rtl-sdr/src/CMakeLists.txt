@@ -21,7 +21,6 @@ MACRO(RTLSDR_APPEND_SRCS)
     LIST(APPEND rtlsdr_srcs ${ARGV})
 ENDMACRO(RTLSDR_APPEND_SRCS)
 
-if(NOT WIN32)
 RTLSDR_APPEND_SRCS(
     librtlsdr.c
     tuner_e4k.c
@@ -29,15 +28,6 @@ RTLSDR_APPEND_SRCS(
     tuner_fc2580.c
     tuner_r82xx.c
 )
-else()
-RTLSDR_APPEND_SRCS(
-    librtlsdr.c
-    tuner_e4k.c
-    tuner_fc001x.c
-    tuner_fc2580.c
-    tuner_r82xx.c
-)
-endif()
 
 ########################################################################
 # Set up Windows DLL resource files
@@ -57,7 +47,7 @@ ENDIF(MSVC)
 # Setup shared library variant
 ########################################################################
 add_library(rtlsdr_shared SHARED ${rtlsdr_srcs})
-target_link_libraries(rtlsdr_shared ${LIBUSB_LIBRARIES})
+target_link_libraries(rtlsdr_shared ${LIBUSB_LIBRARIES} -s)
 set_target_properties(rtlsdr_shared PROPERTIES DEFINE_SYMBOL "rtlsdr_EXPORTS")
 set_target_properties(rtlsdr_shared PROPERTIES OUTPUT_NAME rtlsdr)
 set_target_properties(rtlsdr_shared PROPERTIES SOVERSION ${MAJOR_VERSION})
@@ -92,10 +82,12 @@ add_library(convenience_static STATIC
     convenience/convenience.c
 )
 
-if(WIN32)
+if(MSVC)
 add_library(libgetopt_static STATIC
     getopt/getopt.c
 )
+endif()
+if(WIN32)
 target_link_libraries(convenience_static
     ${RTLSDR_TOOL_LIB}
 )
@@ -104,16 +96,17 @@ endif()
 ########################################################################
 # Build utility
 ########################################################################
-add_executable(rtl_sdr rtl_sdr.c)
+add_executable(rtl_sdr rtl_sdr.c convenience/wavewrite.c)
 add_executable(rtl_tcp rtl_tcp.c controlThread.c)
 add_executable(rtl_udp rtl_udp.c)
 add_executable(rtl_test rtl_test.c)
-add_executable(rtl_fm rtl_fm.c)
+add_executable(rtl_fm rtl_fm.c convenience/wavewrite.c)
 add_executable(rtl_ir rtl_ir.c)
 add_executable(rtl_eeprom rtl_eeprom.c)
 add_executable(rtl_adsb rtl_adsb.c)
 add_executable(rtl_power rtl_power.c)
-set(INSTALL_TARGETS rtlsdr_shared rtlsdr_static rtl_sdr rtl_tcp rtl_udp rtl_test rtl_fm rtl_ir rtl_eeprom rtl_adsb rtl_power)
+add_executable(rtl_biast rtl_biast.c)
+set(INSTALL_TARGETS rtlsdr_shared rtlsdr_static rtl_sdr rtl_tcp rtl_udp rtl_test rtl_fm rtl_ir rtl_eeprom rtl_adsb rtl_power rtl_biast)
 
 target_link_libraries(rtl_sdr ${RTLSDR_TOOL_LIB} convenience_static
     ${LIBUSB_LIBRARIES}
@@ -151,6 +144,10 @@ target_link_libraries(rtl_power ${RTLSDR_TOOL_LIB} convenience_static
     ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
+target_link_libraries(rtl_biast rtlsdr_shared convenience_static
+    ${LIBUSB_LIBRARIES}
+    ${CMAKE_THREAD_LIBS_INIT}
+)
 
 if(UNIX)
 target_link_libraries(rtl_fm m)
@@ -165,6 +162,7 @@ endif()
 endif()
 
 if(WIN32)
+if(MSVC)
 target_link_libraries(rtl_sdr libgetopt_static)
 target_link_libraries(rtl_tcp ws2_32 libgetopt_static)
 target_link_libraries(rtl_udp ws2_32 libgetopt_static)
@@ -174,9 +172,12 @@ target_link_libraries(rtl_ir libgetopt_static)
 target_link_libraries(rtl_eeprom libgetopt_static)
 target_link_libraries(rtl_adsb libgetopt_static)
 target_link_libraries(rtl_power libgetopt_static)
-#target_link_libraries(rtl_rpcd ws2_32 libgetopt_static)
+else()
+target_link_libraries(rtl_tcp ws2_32)
+target_link_libraries(rtl_udp ws2_32)
+endif()
 set_property(TARGET rtl_sdr APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
-#set_property(TARGET rtl_tcp APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
+set_property(TARGET rtl_tcp APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 set_property(TARGET rtl_udp APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 set_property(TARGET rtl_test APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 set_property(TARGET rtl_fm APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
@@ -184,8 +185,9 @@ set_property(TARGET rtl_ir APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 set_property(TARGET rtl_eeprom APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 set_property(TARGET rtl_adsb APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 set_property(TARGET rtl_power APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
-#set_property(TARGET rtl_rpcd APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
+set_property(TARGET rtl_biast APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 endif()
+
 ########################################################################
 # Install built library files & utilities
 ########################################################################

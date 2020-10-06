@@ -19,7 +19,7 @@
  * Copyright (C) 2018 by Thierry Leconte http://www.github.com/TLeconte
  *
  * Modifications QIRX :
- * Copyright (C) 2019 by Clem Schmidt https://softsyst.com
+ * Copyright (C) 2019 by Clem Schmidt https://qirx.softsyst.com
  *
  */
 
@@ -346,10 +346,13 @@ extern "C"
 
 				for (i = 0; i < len; i++)
 				{
-					buf[i] = (uint8_t)((pIn[i]>> 6)+127);	//I-data, Q-data alternating
+					//restore the unsigned 12-Bit signal
+					int tmp = (pIn[i] >> 4) + 2048 ;
 
-					//float f = (float)buf[i];
-					//float g = f - 127.5;
+					// cut the four low order bits
+					tmp >>= 4;
+
+					buf[i] = tmp;// (uint8_t)((pIn[i] >> 6) + 127);	//I-data, Q-data alternating
 				}
 			}
 			else if (BitWidth == 0) // 4-Bit 
@@ -690,8 +693,8 @@ extern "C"
 #else
 		struct sigaction sigact, sigign;
 #endif
-		printf("airspy_tcp, an I/Q spectrum server Airspy receivers\n"
-			"Version 0.12a for QIRX, 30.04.2020\n\n");
+		printf("airspy_tcp, an I/Q data server for Airspy receivers\n"
+			"Version 0.13 for QIRX, 25.09.2020\n\n");
 
 		//for (int k = 0; k < argc; k++)
 		//{
@@ -855,14 +858,6 @@ extern "C"
 			airspy_exit();
 			return -1;
 		}
-		//rc = airspy_set_mixer_agc(device, 0);
-		//if (rc < 0)
-		//	return rc;
-
-		//rc = airspy_set_lna_agc(device, 0);
-		//if (rc < 0)
-		//	return rc;
-
 
 		//if (0 == gain) {
 		//	/* Enable automatic gain */

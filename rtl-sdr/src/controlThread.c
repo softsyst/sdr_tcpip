@@ -49,6 +49,9 @@
 
 #include "tuner_r82xx.h"
 
+extern int	rtlsdr_demod_read_regs(rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, unsigned char *data, uint8_t len);
+extern void print_demod_register(rtlsdr_dev_t *dev, uint16_t page);
+
 #ifdef _WIN32
 #pragma comment(lib, "ws2_32.lib")
 
@@ -139,13 +142,13 @@ void *ctrl_thread_fn(void *arg)
 				haveControlSocket = 1;
 				break;
 			}
-			result = rtlsdr_get_tuner_type(dev);
-			if((result != RTLSDR_TUNER_E4000) && (result != RTLSDR_TUNER_FC2580))
+			result = rtlsdr_get_tuner_i2c_register(dev, reg_values, &len, &tuner_gain);
+			tuner_gain = (tuner_gain + 5) / 10;
+			if(old_gain != tuner_gain)
 			{
-				result = rtlsdr_get_tuner_i2c_register(dev, reg_values, &len, &tuner_gain);
-				//printf("len=%d, tuner_gain=%d, R8=%x\n", len, tuner_gain,reg_values[8]);
+				printf("gain = %2d dB\r", tuner_gain);
+				old_gain = tuner_gain;
 			}
-
 		}
 
 		setsockopt(controlSocket, SOL_SOCKET, SO_LINGER, (char *)&ling, sizeof(ling));
@@ -167,11 +170,6 @@ void *ctrl_thread_fn(void *arg)
 
 			len = 0;
 			result = rtlsdr_get_tuner_i2c_register(dev, reg_values, &len, &tuner_gain);
-			if(old_gain != tuner_gain)
-			{
-				//printf("len = %d, tuner_gain = %d\n", len, tuner_gain);
-				old_gain = tuner_gain;
-			}
 			memset(txbuf, 0, TX_BUF_LEN);
 			if (result)
 				goto sleep;
@@ -221,4 +219,3 @@ close:
 	}
 	return 0;
 }
-

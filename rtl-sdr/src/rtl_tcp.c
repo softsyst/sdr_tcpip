@@ -18,6 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+//#define TIME_MEAS
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
@@ -37,6 +38,22 @@
 #else
 #include <winsock2.h>
 #include "getopt/getopt.h"
+
+#include <Windows.h>
+double calcTimeDiff(
+	LARGE_INTEGER* count2,
+	LARGE_INTEGER* count1, double factor);
+double calcTimeDiff_in_ms(
+	LARGE_INTEGER* count2,
+	LARGE_INTEGER* count1);
+double calcTimeDiff_in_us(
+	LARGE_INTEGER* count2,
+	LARGE_INTEGER* count1);
+double calcTimeDiff_in_ns(
+	LARGE_INTEGER* count2,
+	LARGE_INTEGER* count1);
+void formattedTimeOutput(char* s, const double tim);
+
 #endif
 
 #ifdef NEED_PTHREADS_WORKARROUND
@@ -101,7 +118,6 @@ void usage(void)
 	printf("\n"
 		"Usage:\t[-a listen address]\n"
 		"\t[-b number of buffers (default: 15, set by library)]\n"
-		"\t[-c don't calibrate image rejection for R820T/R828D]\n"
 		"\t[-d device index or serial (default: 0)]\n"
 		"\t[-f frequency to tune to [Hz]]\n"
 		"\t[-g gain in dB (default: 0 for auto)]\n"
@@ -152,7 +168,6 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 		rpt->next = NULL;
 
 		pthread_mutex_lock(&ll_mutex);
-		//printf("ll_buffers=%x\n",ll_buffers);
 		if (ll_buffers == NULL) {
 			ll_buffers = rpt;
 		} else {
@@ -188,6 +203,9 @@ static void rtlsdr_callback(unsigned char *buf, uint32_t len, void *ctx)
 		pthread_mutex_unlock(&ll_mutex);
 	}
 }
+static int count = 0;
+LARGE_INTEGER c1, c2;
+LARGE_INTEGER *Count1 = &c1, *Count2 = &c2;
 
 static void *tcp_worker(void *arg)
 {
@@ -244,6 +262,16 @@ static void *tcp_worker(void *arg)
 			curelem = curelem->next;
 			free(prev->data);
 			free(prev);
+#ifdef TIME_MEAS
+			count++;
+			if (count % 100 == 0)
+			{
+				QueryPerformanceCounter(Count2);
+				formattedTimeOutput("1000 sdrplay buffers (ms)", calcTimeDiff_in_ms(Count2, Count1));
+				QueryPerformanceCounter(Count1);
+			}
+#endif
+
 		}
 	}
 	return NULL;
@@ -408,7 +436,6 @@ int main(int argc, char **argv)
 	int port = 1234;
 	pthread_t thread_ctrl; //-cs- for periodically reading the register values
 	int port_resp = 1;
-	//int report_i2c = 0;
 	int report_i2c = 1;
 	int do_exit_thrd_ctrl = 0;
 	int cal_imr = 1;
@@ -426,9 +453,6 @@ int main(int argc, char **argv)
 	 * -> 512*512 -> 1048 ms @ 250 kS  or  81.92 ms @ 3.2 MS (internal default)
 	 * ->  32*512 ->   65 ms @ 250 kS  or   5.12 ms @ 3.2 MS (new default)
 	 *
-	 * usual soundcard as reference:
-	 *   512 samples @ 48 kHz ~= 10.6 ms
-	 *   512 samples @  8 kHz  = 64 ms
 	 */
 	uint32_t buf_len = 64 * 512;
 	int dev_index = 0;
@@ -457,18 +481,15 @@ int main(int argc, char **argv)
 #endif
 
 	printf("rtl_tcp, an I/Q spectrum server for RTL2832 based DVB-T receivers\n"
-		   "Version 0.90 for QIRX, %s\n\n", __DATE__);
+		   "Version 0.91 for QIRX, %s\n\n", __DATE__);
 
-	while ((opt = getopt(argc, argv, "a:b:cd:f:g:l:n:O:p:us:vr:w:D:TP:")) != -1) {
+	while ((opt = getopt(argc, argv, "a:b:d:f:g:l:n:O:p:us:vr:w:D:TP:")) != -1) {
 		switch (opt) {
 		case 'a':
 			addr = optarg;
 			break;
 		case 'b':
 			buf_num = atoi(optarg);
-			break;
-		case 'c':
-			cal_imr = 0;
 			break;
 		case 'd':
 			dev_index = verbose_device_search(optarg);
@@ -491,6 +512,8 @@ int main(int argc, char **argv)
 			break;
 		case 'r':
 			port_resp = atoi(optarg);
+			if(port_resp == 0)
+				cal_imr = 0;
 			break;
 		case 's':
 			samp_rate = (uint32_t)atofs(optarg);

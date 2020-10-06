@@ -1466,8 +1466,7 @@ int rtlsdr_set_offset_tuning(rtlsdr_dev_t *dev, int on)
 	if (dev->direct_sampling)
 		return -3;
 
-	/* based on keenerds 1/f noise measurements */
-	dev->offs_freq = on ? ((dev->rate / 2) * 170 / 100) : 0;
+	dev->offs_freq = on ? (dev->rate / 2) : 0;
 	r |= rtlsdr_set_if_freq(dev, dev->offs_freq);
 
 	if (dev->tuner && dev->tuner->set_bw) {
@@ -1807,7 +1806,6 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	}
 
 found:
-	//rtl2832_init(dev);
 	/* use the rtl clock value by default */
 	dev->tun_xtal = dev->rtl_xtal;
 	dev->tuner = &tuners[dev->tuner_type];
@@ -1817,7 +1815,6 @@ found:
 		dev->tun_xtal = FC2580_XTAL_FREQ;
 		break;
 	case RTLSDR_TUNER_E4000:
-		//E4000
 		rtlsdr_demod_write_reg(dev, 1, 0x12, 0x5a, 1);//DVBT_DAGC_TRG_VAL
 		rtlsdr_demod_write_reg(dev, 1, 0x02, 0x40, 1);//DVBT_AGC_TARG_VAL_0
 		rtlsdr_demod_write_reg(dev, 1, 0x03, 0x5a, 1);//DVBT_AGC_TARG_VAL_8_1
@@ -1847,7 +1844,6 @@ found:
 		break;
 	case RTLSDR_TUNER_FC0012:
 	case RTLSDR_TUNER_FC0013:
-		//FC0012
 		rtlsdr_demod_write_reg(dev, 1, 0x12, 0x5a, 1);//DVBT_DAGC_TRG_VAL
 		rtlsdr_demod_write_reg(dev, 1, 0x02, 0x40, 1);//DVBT_AGC_TARG_VAL_0
 		rtlsdr_demod_write_reg(dev, 1, 0x03, 0x5a, 1);//DVBT_AGC_TARG_VAL_8_1

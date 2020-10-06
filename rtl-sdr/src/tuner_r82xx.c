@@ -317,7 +317,7 @@ static uint8_t r82xx_init_array[] = {
 	0x40, 	//Reg 0x09
 	0xdb, 	//Reg 0x0a
 	0x6b,	//Reg 0x0b
-	0xf0, 	//Reg 0x0c
+	0x70,//0xf0, 	//Reg 0x0c
 	0x53, 	//Reg 0x0d
 	0x53, 	//Reg 0x0e
 	0x68,	//Reg 0x0f
@@ -536,6 +536,29 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *buf, int len)
 	printf("\n");
 }*/
 
+static const int16_t abs_freqs[] = {
+	 25, 26, 27, 28, 30, 32, 35, 40, 50, 50, 55, 55, 60, 60, 65, 65, 70, 70, 75, 75, 90, 90,110,110,140,140,180,180,250,250,280,280,310,310,588,588,600,850,1000,1500,1715};
+static const int16_t abs_gains[] = {
+	215,203,193,186,175,168,159,156,163,160,162,150,151,151,149,141,142,137,137,115,116,116,117,117,120,120,112,109, 86, 85, 82, 82, 82, 93,115,113,114,130, 136, 157, 166};
+
+int16_t interpolation(int16_t freq, int size, const int16_t *freqs, const int16_t *gains)
+{
+	int16_t gain = 0;
+	int i;
+
+	if(freq < freqs[0])	freq = freqs[0];
+	if(freq >= freqs[size - 1])
+		gain = gains[size - 1];
+	else
+		for(i=0; i < (size - 1); ++i)
+			if (freq < freqs[i+1])
+			{
+				gain = gains[i] + ((gains[i+1] - gains[i]) * (freq - freqs[i])) / (freqs[i+1] - freqs[i]);
+				break;
+			}
+	return gain;
+}
+
 /*
  * r82xx tuning logic
  */
@@ -566,6 +589,8 @@ static int r82xx_set_mux(struct r82xx_priv *priv, uint32_t freq)
 	/* TF BAND */
 	rc = r82xx_write_reg(priv, 0x1b, range->tf_c);
 
+	priv->abs_gain = interpolation(freq, ARRAY_SIZE(abs_gains), abs_freqs, abs_gains);
+	//printf("abs_gain = %d\n", priv->abs_gain);
 	return rc;
 }
 
@@ -783,33 +808,72 @@ int r82xx_set_gain(struct r82xx_priv *priv, int gain)
 	return r82xx_write_reg_mask(priv, 0x0c, vga_index, 0x0f);
 }
 
-
 /* expose/permit tuner specific i2c register hacking! */
 int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsigned data, unsigned mask)
 {
 	//AGC-Test
-	if((i2c_register == 0x13) && (mask & 1))
+	if((i2c_register == 32) && (mask & 1))
 	{
 		rtlsdr_set_agc_mode(priv->rtl_dev, data & 1);
 		printf("set agc mode %u\n", data & 1);
 	}
-	if((i2c_register == 0x13) && (mask & 2) && (data & 2))
+	//Reset Demod
+	if((i2c_register == 32) && (mask & 2) && (data & 2))
 	{
 		rtlsdr_reset_demod(priv->rtl_dev);
 		printf("reset demod\n");
 	}
+	//Signal strength on/off
+	if((i2c_register == 32) && (mask & 4))
+	{
+		priv->get_signal_strength = (data & 4) ? 1 : 0;
+	}
 	return r82xx_write_reg_mask(priv, i2c_register & 0xFF, data & 0xff, mask & 0xff);
 }
 
-static const int r82xx_lna_gains[]  = {
-	0, 36, 80, 114, 138, 152, 176, 206, 236, 264, 280, 290, 302, 324, 344, 352
-};
+static const int16_t lna_freqs[] = {
+	  30,  50, 100, 200, 500, 750, 980,1250,1500,1700};
+static const int16_t lna_gains[][16] = {
+	{  0,   0,   0,   0,   0,   0,   0,   0,   0,   0},
+	{ 36,  35,  35,  35,  33,  30,  29,  28,  30,  30},
+	{ 76,  74,  74,  74,  70,  66,  65,  64,  69,  68},
+	{113, 109, 108, 107, 105, 103, 104, 104, 104, 104},
+	{141, 136, 131, 130, 131, 134, 137, 139, 130, 124},
+	{155, 150, 146, 145, 146, 149, 152, 154, 147, 142},
+	{180, 176, 172, 172, 173, 176, 179, 181, 175, 170},
+	{205, 201, 199, 198, 200, 202, 205, 206, 202, 194},
+	{231, 228, 226, 226, 229, 231, 233, 230, 227, 215},
+	{258, 254, 254, 253, 255, 253, 249, 240, 232, 211},
+	{279, 275, 273, 271, 274, 267, 256, 242, 233, 213},
+	{291, 287, 284, 282, 288, 278, 263, 246, 236, 215},
+	{305, 301, 296, 294, 302, 290, 271, 251, 241, 220},
+	{327, 322, 319, 316, 317, 297, 276, 256, 242, 218},
+	{343, 339, 337, 334, 334, 317, 296, 272, 252, 225},
+	{299, 322, 342, 343, 346, 325, 303, 279, 255, 227}};
+
+
 static const int r82xx_mixer_gains[]  = {
 	0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 149, 162, 175, 175, 175, 175
 };
+static const uint16_t adc[] = {
+//	0	1	2	3	4	5	6	7	8	9	a	b	c	d	e	f
+	460,450,435,420,410,400,390,380,376,372,368,364,360,355,350,345,
+	340,336,332,328,324,320,316,312,308,304,300,297,294,291,287,283,
+	280,276,272,268,264,260,256,252,248,244,240,230,220,213,207,200,
+	190,180,170,160,150,140,130,120,110,100, 75, 60, 40, 20, 10,  0
+};
+
+static const int16_t if_agc_tab[]  = {-8192, 144, 736,1236,1776,2352,2864,3280,3744,4117,6064,6688,8191};
+static const int16_t if_gain_tab[] = {  -50, -30,   0,  30,  60,  90, 120, 150, 180, 210, 385, 420, 430};
+
+extern uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, uint8_t len);
+
 static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* data)
 {
 	int rc;
+	unsigned int lna_index, lna_gain;
+	int tuner_gain;
+	int if_gain = 0;
 	uint8_t mixer_gain = (data[3] >> 4) & 0x0f;
 
 	/* set IMR_G */
@@ -819,24 +883,74 @@ static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* dat
 		if(rc < 0)
 			return rc;
 		priv->old_gain = mixer_gain;
-		//print_registers(priv);
-
 	}
 
-	/* Sum_of_all_gains = vga_gain + lna_gain + mixer_gain */
-	return (data[0x0c] & 0x0f) * 35 + r82xx_lna_gains[data[3] & 0xf] + r82xx_mixer_gains[mixer_gain] - 150;
+	if((data[0x0c] & 0x10) == 0x10) //IF vga gain controlled by vagc pin
+	{
+		int16_t if_agc_val = rtlsdr_demod_read_reg(priv->rtl_dev, 3, 0x59, 2);
+		if_gain = interpolation(if_agc_val, ARRAY_SIZE(if_agc_tab), if_agc_tab, if_gain_tab);
+	}
+	else
+		if_gain = (data[0x0c] & 0x0f) * 35;
+
+	/* LNA gain */
+	lna_index = data[3] & 0xf;
+	if(lna_index)
+	{
+		lna_gain = interpolation(priv->freq, ARRAY_SIZE(lna_freqs), lna_freqs, lna_gains[lna_index]);
+	}
+	else
+		lna_gain = 0;
+	//printf("lna_gain = %d, index = %d\n", lna_gain, lna_index);
+	/* Sum_of_all_gains = if_gain + lna_gain + mixer_gain + absolute gain*/
+	tuner_gain = if_gain + lna_gain + r82xx_mixer_gains[mixer_gain] - priv->abs_gain;
+
+	//switch detektor 3 from mixer to output
+	if(priv->get_signal_strength)
+	{
+		int output, input;
+		// Mixer gain mode = manual mode
+		rc = r82xx_write_reg_mask(priv, 0x07, mixer_gain, 0x1f);
+		if(rc < 0)
+			return rc;
+		//sw_pdect = det3
+		rc = r82xx_write_reg_mask(priv, 0x1e, 0x80, 0x80);
+		if(rc < 0)
+			return rc;
+		usleep(10000);
+		rc = r82xx_read(priv, data, 2);
+		if (rc < 0)
+			return rc;
+		//sw_pdect = det3
+		rc = r82xx_write_reg_mask(priv, 0x1e, 0, 0x80);
+		if(rc < 0)
+			return rc;
+		// Mixer gain mode = auto mode
+		rc = r82xx_write_reg_mask(priv, 0x07, 0x10, 0x10);
+		if(rc < 0)
+			return rc;
+		output = 1260 - adc[data[1] & 0x3f];
+		input = (output - tuner_gain + 5) / 10;
+		if(priv->old_input != input)
+		{
+			printf("Gain=%ddB, Output=%ddBuV, Input=%ddBuV\n", (tuner_gain+5)/10, (output+5)/10, input);
+			priv->old_input = input;
+		}
+	}
+
+	return tuner_gain;
 }
 
 int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *len, int *strength)
 {
 	int rc;
 
-	*len = 32;
+	*len = REG_SHADOW_START + NUM_REGS;
 	// The lower 16 I2C registers can be read with the normal read fct, the upper ones are read from the cache
-	rc = r82xx_read(priv, data, 5);
+	rc = r82xx_read(priv, data, REG_SHADOW_START);
 	if (rc < 0)
 		return rc;
-	memcpy(&data[5], priv->regs, 27);
+	memcpy(data+REG_SHADOW_START, priv->regs, NUM_REGS);
 	*strength = r82xx_get_signal_strength(priv, data);
 	return 0;
 }
@@ -890,11 +1004,8 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 	uint32_t lo_freq;
 	uint8_t air_cable1_in;
 
-	if(priv->sideband)
-		lo_freq = freq - priv->int_freq;
-	else
-		lo_freq = freq + priv->int_freq;
-	rc = r82xx_set_mux(priv, lo_freq);
+	priv->freq = freq / 1000000;
+	rc = r82xx_set_mux(priv, freq);
 	if (rc < 0)
 		goto err;
 
@@ -912,6 +1023,10 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 			goto err;
 	}
 
+	if(priv->sideband)
+		lo_freq = freq - priv->int_freq;
+	else
+		lo_freq = freq + priv->int_freq;
 	rc = r82xx_set_pll(priv, lo_freq);
 
 err:

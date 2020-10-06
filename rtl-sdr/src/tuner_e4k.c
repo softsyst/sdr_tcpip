@@ -767,7 +767,6 @@ static int e4k_get_signal_strength(uint8_t *data)
 	if_gain += if_stage56_gain[data[0x17] & 7];
 	if_gain += if_stage56_gain[(data[0x17] >> 3) & 7];
 	if_gain *= 10;
-	//printf("lna=%d, mix=%d, if=%d\n", lna_gain, mixer_gain, if_gain);
 	return if_gain + mixer_gain + lna_gain;
 }
 

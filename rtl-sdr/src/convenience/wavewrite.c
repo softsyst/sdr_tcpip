@@ -98,6 +98,8 @@ void executeInBackground( char * file, char * args, char * searchStr[], char * r
 	spawnvp(P_NOWAIT, file, argv);
 }
 
+int gettimeofday(struct timeval *tv, void* ignored);
+
 #endif
 
 
