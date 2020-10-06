@@ -103,7 +103,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;__DEBUG;_CONSOLE;_LIB;rtlsdr_EXPORTS</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\posix\include;..\Lib\libusb-1.0.21\libusb;.\include;.\src</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\posix\include;..\libusb-1.0.21\libusb;.\include;.\src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
