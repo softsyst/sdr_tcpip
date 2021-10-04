@@ -63,6 +63,28 @@ typedef int socklen_t;
 #define SOCKET int
 #define SOCKET_ERROR -1
 #endif
+#ifdef _WIN32
+
+/* Offset between 1/1/1601 and 1/1/1970 in 100 nanosec units */
+#define _W32_FT_OFFSET (116444736000000000)
+
+int gettimeofday(struct timeval *tp, void *tzp)
+{
+	union {
+		unsigned __int64 ns100; /* Time since 1 Jan 1601, in 100ns units */
+		FILETIME ft;
+	} _now;
+
+	if (tp) {
+		GetSystemTimeAsFileTime(&_now.ft);
+		tp->tv_usec = (long)((_now.ns100 / 10) % 1000000);
+		tp->tv_sec = (long)((_now.ns100 - _W32_FT_OFFSET) / 10000000);
+	}
+
+	return 0;
+}
+#endif
+
 
 #ifdef __cplusplus
 extern "C"
@@ -129,6 +151,7 @@ extern "C"
 	static uint32_t fscount, *supported_samplerates;
 	static int verbose = 0;
 	static int ppm_error = 0;
+	static int ppm_error100 = 0;	//ppm error * 100
 	static int frequencyHz = 100000000;
 	static int BitWidth = 2; // 16-Bit default
 	static int dshift = 1;
@@ -220,7 +243,7 @@ extern "C"
 #define CTRL_OUT		(LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_OUT)
 #define CTRL_TIMEOUT	300
 
-	uint16_t airspy_demod_read_reg(void *dev, uint8_t page, uint16_t addr, uint8_t len)
+	uint16_t airspy_demod_read_reg(void *dev, uint8_t page, uint16_t addr, uint16_t len)
 	{
 		int r;
 		unsigned char data[2];
@@ -409,6 +432,70 @@ extern "C"
 		return 0;
 	}
 
+	//static void *tcp_worker(void *arg)
+	//{
+	//	struct llist *curelem, *prev;
+	//	int bytesleft, bytessent, index;
+	//	struct timeval tv = { 1,0 };
+	//	struct timespec timeToWait;
+	//	struct timeval now;
+	//	fd_set writefds;
+	//	int r = 0;
+
+	//	while (1) {
+	//		if (do_exit)
+	//			pthread_exit(0);
+
+	//		gettimeofday(&now, NULL);
+	//		timeToWait.tv_sec = now.tv_sec + 60;
+	//		timeToWait.tv_nsec = now.tv_usec * 1000;
+
+	//	//https://stackoverflow.com/questions/1486833/pthread-cond-timedwait
+	//		pthread_mutex_lock(&ll_mutex);
+	//		r = pthread_cond_timedwait(&cond, &ll_mutex, &timeToWait);
+	//		if (r == ETIMEDOUT) {
+	//			pthread_mutex_unlock(&ll_mutex);
+	//			printf("worker cond timeout\n");
+	//			sighandler(0);
+	//			pthread_exit(NULL);
+	//		}
+
+	//		curelem = ls_buffer;
+	//		ls_buffer = 0;
+	//		pthread_mutex_unlock(&ll_mutex);
+
+	//		while (curelem != 0) {
+	//			bytesleft = curelem->len;
+	//			index = 0;
+	//			bytessent = 0;
+	//			while (bytesleft > 0) {
+	//				FD_ZERO(&writefds);
+	//				FD_SET(s, &writefds);
+	//				tv.tv_sec = 1;
+	//				tv.tv_usec = 0;
+	//				r = select(s + 1, NULL, &writefds, NULL, &tv);
+	//				if (r) {
+	//					bytessent = send(s, &curelem->data[index], bytesleft, 0);
+	//					bytesleft -= bytessent;
+	//					index += bytessent;
+	//				}
+	//				if (bytessent == SOCKET_ERROR || do_exit) {
+	//					printf("worker socket bye\n");
+	//					if (!do_exit)
+	//						sighandler(0);
+	//					pthread_exit(NULL);
+	//				}
+	//			}
+	//			prev = curelem;
+	//			curelem = curelem->next;
+	//			free(prev->data);
+	//			free(prev);
+	//		}
+	//	}
+	//	return NULL;
+	//}
+
+
 	static void *tcp_worker(void *arg)
 	{
 		struct llist *curelem;
@@ -464,11 +551,6 @@ extern "C"
 					sighandler(0);
 					pthread_exit(NULL);
 				}
-				//if (bytessent == SOCKET_ERROR || do_exit) {
-				//	printf("worker socket bye\n");
-					//sighandler(0);
-					//pthread_exit(NULL);
-				//}
 			}
 			free(curelem->data);
 			free(curelem);
@@ -558,6 +640,14 @@ extern "C"
 		r = airspy_set_freq(dev, ff);
 		if (r != AIRSPY_SUCCESS)
 			printf("Set frequency %d failed with %d", ff, r);
+
+		usleep(100000);
+
+		ff = (uint32_t)((float)f*(1.0 + (float)ppm_error100 / 1e8));
+		r = airspy_set_freq(dev, ff);
+		if (r != AIRSPY_SUCCESS)
+			printf("Set frequency %d failed with %d", ff, r);
+
 		return r;
 	}
 
@@ -607,7 +697,7 @@ extern "C"
 				break;
 			case SET_FREQUENCY_CORRECTION://0x05
 				if (verbose) printf("set freq correction %d\n", ntohl(cmd.param));
-				ppm_error = ntohl(cmd.param);
+				ppm_error = -ntohl(cmd.param);
 				set_freq(frequencyHz);
 				break;
 			case SET_IF_STAGE:
@@ -654,6 +744,11 @@ extern "C"
 				//	printf("set to lower sideband\n");
 				//rtlsdr_set_tuner_sideband(dev, tmp);
 				break;
+			case SET_FREQUENCYCORRECTION_PPM100: // 0x4a
+				if (verbose) printf("set freq correction ppm*100: %d\n", ntohl(cmd.param));
+				ppm_error100 = -ntohl(cmd.param);
+				set_freq(frequencyHz);
+				break;
 			default:
 				break;
 			}
@@ -694,7 +789,7 @@ extern "C"
 		struct sigaction sigact, sigign;
 #endif
 		printf("airspy_tcp, an I/Q data server for Airspy receivers\n"
-			"Version 0.13 for QIRX, 25.09.2020\n\n");
+			"Version 0.14 for QIRX, 04.10.2021\n\n");
 
 		//for (int k = 0; k < argc; k++)
 		//{
