@@ -11,6 +11,8 @@ Please use [old-dab's](https://github.com/old-dab/rtlsdr) files to have always t
 - 8- and 16-Bit I/Q data selectable
 - BiasT
 - Binary is included in the QIRX download package.
+### Version 0.14
+Fractional ppm frequency correction.
 ### Version 0.13
 Change of the conversion 16Bit->8Bit.
 The 16Bit samples as delivered from the libairspy.dll are first converted to their native 12Bit format, and then have their least four bits discarded.
